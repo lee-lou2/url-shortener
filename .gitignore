@@ -1,6 +1,9 @@
 # IDE
 .idea
 .vscode
+*.swp
+*.swo
+*~
 
 # Environment
 .env
@@ -10,6 +13,8 @@
 # Database
 sqlite.db
 *.db
+*.sqlite
+*.sqlite3
 
 # Rust build artifacts
 /target/
@@ -19,6 +24,53 @@ Cargo.lock.bak
 # OS files
 .DS_Store
 Thumbs.db
+ehthumbs.db
 
 # Logs
 *.log
+logs/
+
+# Security - SSL/TLS certificates and keys (NEVER commit these)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.cer
+*.der
+
+# Security - Secret files
+*.secret
+*.secrets
+secrets/
+
+# Rust profiling and coverage
+*.profraw
+*.profdata
+coverage/
+lcov.info
+tarpaulin-report.html
+cobertura.xml
+
+# SQLx offline mode cache (optional, can be committed for offline builds)
+# .sqlx/
+
+# Local Cargo settings
+.cargo/config.toml
+!.cargo/config.toml.example
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+tmp/
+
+# Core dumps
+core
+*.core
