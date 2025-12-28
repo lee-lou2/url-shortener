@@ -2,82 +2,217 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-🚀 **데모 사이트:** [https://u.lou2.kr](https://u.lou2.kr)
+🚀 **데모:** [https://u.lou2.kr](https://u.lou2.kr)
 
 ![demo site](docs/screenshot.png)
 
-## 소개
-
-Rust로 개발된 고성능 URL 단축 서비스입니다. 딥 링크 처리, 플랫폼별 리디렉션, JWT 인증, 웹훅 알림 등 다양한 기능을 제공합니다.
-
-## 주요 기능
-
-| 기능 | 설명 |
-|------|------|
-| **URL 단축** | Base62 인코딩 기반의 충돌 없는 고유 단축 URL 생성 |
-| **딥 링크** | iOS/Android 앱 딥 링크 지원 및 플랫폼별 폴백 URL 처리 |
-| **OG 태그** | 소셜 미디어 링크 미리보기를 위한 Open Graph 메타데이터 설정 |
-| **웹훅** | URL 접근 시 지정된 엔드포인트로 실시간 알림 전송 (동시성 제어 포함) |
-| **Redis 캐싱** | MessagePack 직렬화로 자주 접근되는 URL 정보를 고속 캐싱 |
-| **레이트 리미팅** | SmartIP 기반 API 남용 방지를 위한 요청 제한 |
-| **다중 압축** | Brotli, Gzip, Zstd 압축으로 응답 크기 최적화 |
-
-## 기술 스택
-
-| 영역 | 기술 |
-|------|------|
-| 언어 | Rust 2021 Edition |
-| 웹 프레임워크 | Axum 0.8 |
-| 비동기 런타임 | Tokio |
-| 데이터베이스 | PostgreSQL (SQLx) |
-| 캐시 | Redis (deadpool-redis) |
-| 캐시 직렬화 | MessagePack (rmp-serde) |
-| 템플릿 엔진 | Askama |
-| 인증 | JWT (jsonwebtoken) |
-| 해싱 | xxHash (xxh3_128) |
-| 메모리 할당자 | mimalloc |
-| 레이트 리미팅 | tower_governor |
-| 에러 추적 | Sentry |
+Rust로 개발된 고성능 URL 단축 서비스입니다. 딥 링크 처리, 플랫폼별 리디렉션, JWT 인증, 웹훅 알림을 지원합니다.
 
 ## 아키텍처
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Client    │────▶│  API Server │────▶│  PostgreSQL │
-│  (Browser)  │     │   (Axum)    │     │  (SQLx)     │
-└─────────────┘     └──────┬──────┘     └─────────────┘
-                          │
-                          ▼
-                   ┌─────────────┐
-                   │    Redis    │
-                   │   (Cache)   │
-                   └─────────────┘
+```mermaid
+flowchart TB
+    subgraph Client["🌐 클라이언트"]
+        Browser[브라우저]
+        Mobile[모바일 앱]
+    end
+
+    subgraph Server["⚡ API 서버 (Axum)"]
+        Router[라우터]
+        Auth[JWT 인증]
+        RateLimit[레이트 리미터]
+        Handler[핸들러]
+    end
+
+    subgraph Storage["💾 저장소"]
+        Redis[(Redis Cache)]
+        PostgreSQL[(PostgreSQL)]
+    end
+
+    subgraph External["🔔 외부"]
+        Webhook[웹훅 엔드포인트]
+    end
+
+    Browser --> Router
+    Mobile --> Router
+    Router --> RateLimit
+    RateLimit --> Auth
+    Auth --> Handler
+    Handler <--> Redis
+    Handler <--> PostgreSQL
+    Handler -.->|비동기| Webhook
 ```
 
-## 단축키 생성 방식
+## 핵심 기술
 
-1. **고유 ID 생성**: 데이터베이스에 저장 시 고유한 숫자 ID를 할당
-2. **Base62 인코딩**: 숫자 ID를 Base62로 인코딩하여 짧은 문자열로 변환
-3. **랜덤 접두사/접미사**: 4자리 랜덤 문자열을 앞뒤 2자씩 배치하여 예측 불가능성 확보
+| 영역 | 기술 | 설명 |
+|------|------|------|
+| 웹 프레임워크 | **Axum 0.8** | 비동기 HTTP 서버 |
+| 데이터베이스 | **PostgreSQL + SQLx** | 타입 안전 쿼리 |
+| 캐시 | **Redis + MessagePack** | 고속 직렬화 캐싱 |
+| 인증 | **JWT** | 토큰 기반 인증 |
+| 해싱 | **xxHash (xxh3_128)** | 중복 URL 감지 |
+| 메모리 | **mimalloc** | 고성능 할당자 |
 
+## URL 생성 플로우
+
+```mermaid
+sequenceDiagram
+    participant C as 클라이언트
+    participant S as API 서버
+    participant R as Redis
+    participant DB as PostgreSQL
+
+    C->>S: POST /v1/urls (URL 데이터 + JWT)
+    S->>S: JWT 검증
+    S->>S: 입력값 유효성 검사
+    S->>S: xxHash 생성 (중복 체크용)
+    S->>DB: INSERT ... ON CONFLICT
+    
+    alt 새 URL
+        DB-->>S: 생성된 URL (id, random_key)
+        S->>S: Base62 인코딩 (short_key 생성)
+    else 기존 URL
+        DB-->>S: 기존 URL 반환
+    end
+    
+    S-->>C: { short_key: "Ab3D7Xy" }
 ```
-예: 랜덤키 "AbXy" → 접두사 "Ab" + ID 12345의 Base62 인코딩 "3D7" + 접미사 "Xy" → "Ab3D7Xy"
+
+### 단축키 생성 방식
+
+```mermaid
+flowchart LR
+    subgraph Input["입력"]
+        ID["DB ID: 12345"]
+        RK["랜덤키: AbXy"]
+    end
+
+    subgraph Process["처리"]
+        B62["Base62 인코딩"]
+        Split["랜덤키 분리"]
+    end
+
+    subgraph Output["출력"]
+        SK["단축키: Ab3D7Xy"]
+    end
+
+    ID --> B62
+    B62 --> |"3D7"| Merge
+    RK --> Split
+    Split --> |"접두사: Ab"| Merge
+    Split --> |"접미사: Xy"| Merge
+    Merge["결합"] --> SK
 ```
 
-**장점:**
-- 데이터베이스 ID 기반으로 충돌 없음
-- 앞뒤 랜덤 문자로 순차적 키 추측 방지 강화
-- 데이터베이스 크기와 무관한 일관된 성능
+**특징:**
+- DB ID 기반으로 충돌 없음
+- 랜덤 접두사/접미사로 순차 추측 방지
+- 일관된 성능 (DB 크기 무관)
+
+## URL 리디렉션 플로우
+
+```mermaid
+sequenceDiagram
+    participant C as 클라이언트
+    participant S as API 서버
+    participant R as Redis
+    participant DB as PostgreSQL
+    participant W as 웹훅
+
+    C->>S: GET /Ab3D7Xy
+    S->>S: short_key 파싱 (id + random_key 추출)
+    
+    S->>R: GET url:{id}
+    alt 캐시 히트
+        R-->>S: MessagePack 데이터
+    else 캐시 미스
+        R-->>S: null
+        S->>DB: SELECT * FROM urls WHERE id = ?
+        DB-->>S: URL 데이터
+        S->>R: SETEX url:{id} (TTL: 1시간)
+    end
+
+    S->>S: random_key 검증
+    S->>S: 플랫폼 감지 (iOS/Android/기타)
+    
+    par 비동기 웹훅 호출
+        S--)W: POST (short_key, user_agent, timestamp)
+    end
+
+    S-->>C: HTML (딥링크 + 폴백 URL)
+```
+
+### 플랫폼별 리디렉션
+
+```mermaid
+flowchart TD
+    Request[요청 수신] --> Detect{User-Agent 분석}
+    
+    Detect -->|iOS| iOS{딥링크 설정?}
+    Detect -->|Android| Android{딥링크 설정?}
+    Detect -->|기타| Default[기본 폴백 URL]
+    
+    iOS -->|있음| iOSDeep[iOS 딥링크 시도]
+    iOS -->|없음| iOSFallback[iOS 폴백 URL]
+    iOSDeep -->|실패시| iOSFallback
+    
+    Android -->|있음| AndroidDeep[Android 딥링크 시도]
+    Android -->|없음| AndroidFallback[Android 폴백 URL]
+    AndroidDeep -->|실패시| AndroidFallback
+
+    iOSFallback --> Response[리디렉션]
+    AndroidFallback --> Response
+    Default --> Response
+```
+
+## 캐싱 전략
+
+```mermaid
+flowchart LR
+    subgraph Request["요청"]
+        R1[URL 조회]
+    end
+
+    subgraph Cache["Redis 캐시"]
+        Check{캐시 확인}
+        Hit[캐시 히트]
+        Miss[캐시 미스]
+        Update[캐시 갱신]
+    end
+
+    subgraph DB["PostgreSQL"]
+        Query[DB 조회]
+    end
+
+    subgraph Serialize["직렬화"]
+        MP[MessagePack]
+    end
+
+    R1 --> Check
+    Check -->|존재| Hit
+    Check -->|없음| Miss
+    Miss --> Query
+    Query --> MP
+    MP --> Update
+    Update --> Hit
+    Hit --> Response[응답]
+```
+
+**MessagePack 사용 이유:**
+- JSON 대비 30-50% 작은 크기
+- 빠른 직렬화/역직렬화
+- 바이너리 포맷으로 Redis 저장 효율적
 
 ## 시작하기
 
 ### 사전 준비
 
-- Rust 1.75 이상
+- Rust 1.75+
 - PostgreSQL
 - Redis
 
-### 설치 및 실행
+### 실행
 
 ```bash
 # 저장소 복제
@@ -86,55 +221,9 @@ cd url-shortener
 
 # 환경 변수 설정
 cp .env.example .env
-# .env 파일 편집
 
 # 실행
-cargo run
-
-# 또는 릴리스 빌드
 cargo run --release
-```
-
-### 환경 변수
-
-```env
-# 서버
-SERVER_PORT=3000
-CORS_ORIGINS=*
-
-# 데이터베이스
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=postgres
-DB_MAX_CONNECTIONS=20
-DB_MIN_CONNECTIONS=2
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-CACHE_TTL_SECS=3600
-
-# JWT
-JWT_SECRET=your-secret-key
-JWT_EXPIRATION_HOURS=24
-
-# 레이트 리미팅
-RATE_LIMIT_PER_SECOND=10
-RATE_LIMIT_BURST_SIZE=50
-
-# 웹훅
-WEBHOOK_TIMEOUT_SECS=10
-WEBHOOK_MAX_CONCURRENT=100
-
-# 마이그레이션
-RUN_MIGRATIONS=true
-
-# Sentry (선택)
-SENTRY_DSN=
-SENTRY_TRACES_SAMPLE_RATE=0.1
 ```
 
 ### Docker
@@ -144,15 +233,21 @@ docker build -t url-shortener .
 docker run -p 3000:3000 --env-file .env url-shortener
 ```
 
+### 주요 환경 변수
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `SERVER_PORT` | 3000 | 서버 포트 |
+| `DB_HOST` | localhost | PostgreSQL 호스트 |
+| `REDIS_HOST` | localhost | Redis 호스트 |
+| `JWT_SECRET` | - | JWT 시크릿 (프로덕션 필수) |
+| `CACHE_TTL_SECS` | 3600 | 캐시 TTL (초) |
+| `RATE_LIMIT_PER_SECOND` | 10 | 초당 요청 제한 |
+| `WEBHOOK_MAX_CONCURRENT` | 100 | 최대 동시 웹훅 수 |
+
 ## API
 
-### `GET /`
-메인 페이지를 렌더링하고 게스트 JWT 토큰을 발급합니다.
-
-### `POST /v1/urls`
-새로운 단축 URL을 생성합니다.
-
-**인증:** `Authorization: Bearer <token>` 또는 쿠키
+### `POST /v1/urls` - URL 생성
 
 **요청:**
 ```json
@@ -162,7 +257,7 @@ docker run -p 3000:3000 --env-file .env url-shortener
   "iosFallbackUrl": "https://apps.apple.com/app/myapp",
   "androidDeepLink": "myapp://path",
   "androidFallbackUrl": "https://play.google.com/store/apps/details?id=com.myapp",
-  "webhookUrl": "https://your-server.com/webhook",
+  "webhookUrl": "https://webhook.example.com",
   "ogTitle": "제목",
   "ogDescription": "설명",
   "ogImageUrl": "https://example.com/image.jpg"
@@ -177,53 +272,20 @@ docker run -p 3000:3000 --env-file .env url-shortener
 }
 ```
 
-### `GET /{short_key}`
+### `GET /{short_key}` - 리디렉션
+
 단축 URL을 원본 URL로 리디렉션합니다.
-- Redis 캐시 확인 → 캐시 미스 시 DB 조회
-- 플랫폼 감지 및 딥 링크/폴백 URL 처리
-- 웹훅 비동기 호출 (Semaphore로 동시성 제어)
 
-## 개발
-
-### 빌드 및 테스트
-
-```bash
-# 개발 모드
-cargo run
-
-# 릴리스 모드
-cargo run --release
-
-# 테스트 실행
-cargo test
-
-# 테스트 출력 포함
-cargo test -- --nocapture
-
-# 린트
-cargo clippy
-
-# 코드 포맷팅
-cargo fmt
-```
-
-### 프로젝트 구조
+## 프로젝트 구조
 
 ```
 src/
-├── main.rs           # 진입점, 서버 부트스트랩
-├── lib.rs            # 라이브러리 크레이트
-├── error.rs          # 중앙화된 에러 처리
-├── api/              # HTTP API 레이어
-├── config/           # 환경 설정
-├── models/           # 데이터 모델
-└── utils/            # 유틸리티 함수
-
-tests/
-└── integration_test.rs  # 통합 테스트
-
-views/                # HTML 템플릿 (Askama)
-migrations/           # SQL 마이그레이션 (SQLx)
+├── main.rs           # 진입점
+├── error.rs          # 에러 처리
+├── api/              # HTTP 핸들러, 라우트, 미들웨어
+├── config/           # 환경 설정, DB/Redis 연결
+├── models/           # 데이터 모델, 리포지토리
+└── utils/            # JWT, Base62, 랜덤 문자열
 ```
 
 ## 라이선스
