@@ -1,0 +1,24 @@
+# Rust 공식 스타일 가이드 기반 설정
+# https://rust-lang.github.io/rustfmt/
+
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
+
+# Import 정렬
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+
+# 함수 및 구조체 정렬
+fn_args_layout = "Tall"
+struct_lit_single_line = true
+
+# 주석 정렬
+wrap_comments = true
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 80
+

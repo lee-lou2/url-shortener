@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{{ object.og_title }}</title>
+    <meta name="description" content="{{ object.og_description }}">
+    <meta name="image" content="{{ object.og_image_url }}">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="{{ object.og_title }}">
+    <meta property="og:description" content="{{ object.og_description }}">
+    <meta property="og:image" content="{{ object.og_image_url }}">
+    <meta property="og:type" content="website">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ object.og_title }}">
+    <meta name="twitter:description" content="{{ object.og_description }}">
+    <meta name="twitter:image" content="{{ object.og_image_url }}">
+
+    <!-- Schema.org -->
+    <meta itemprop="name" content="{{ object.og_title }}">
+    <meta itemprop="description" content="{{ object.og_description }}">
+    <meta itemprop="image" content="{{ object.og_image_url }}">
+
+    <!-- Apple/iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="{{ object.og_title }}">
+
+    <!-- Microsoft -->
+    <meta name="msapplication-TileImage" content="{{ object.og_image_url }}">
+</head>
+
+<body id="redirect-data"
+      data-default-fallback="{{ object.default_fallback_url }}"
+      data-ios-deeplink="{{ object.ios_deep_link }}"
+      data-ios-fallback="{{ object.ios_fallback_url }}"
+      data-android-deeplink="{{ object.android_deep_link }}"
+      data-android-fallback="{{ object.android_fallback_url }}">
+    <script>
+        window.onload = function () {
+            var body = document.getElementById('redirect-data');
+            var default_fallback_url = body.getAttribute('data-default-fallback') || '';
+            var deeplink_ios = body.getAttribute('data-ios-deeplink') || '';
+            var fallback_url_ios = body.getAttribute('data-ios-fallback') || default_fallback_url;
+            var deeplink_android = body.getAttribute('data-android-deeplink') || '';
+            var fallback_url_android = body.getAttribute('data-android-fallback') || default_fallback_url;
+
+            function isAndroid() {
+                return /Android/i.test(navigator.userAgent);
+            }
+
+            function isiOS() {
+                return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+            }
+
+            if (isAndroid()) {
+                if (deeplink_android) {
+                    // Attempt Android deeplink
+                    window.location.href = deeplink_android;
+                    setTimeout(function () {
+                        // If the app is not installed, redirect to fallback URL
+                        window.location.href = fallback_url_android;
+                    }, 2000);
+                } else {
+                    // If no Android deeplink, redirect directly to fallback URL
+                    window.location.href = fallback_url_android;
+                }
+            } else if (isiOS()) {
+                if (deeplink_ios) {
+                    // Attempt iOS deeplink
+                    window.location.href = deeplink_ios;
+                    setTimeout(function () {
+                        // If the app is not installed, redirect to fallback URL
+                        window.location.href = fallback_url_ios;
+                    }, 2000);
+                } else {
+                    // If no iOS deeplink, redirect directly to fallback URL
+                    window.location.href = fallback_url_ios;
+                }
+            } else {
+                // If not iOS or Android, redirect to the default fallback URL
+                window.location.href = default_fallback_url;
+            }
+        }
+    </script>
+</body>
+
+</html>

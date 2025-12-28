@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Link Generator</title>
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/128/5246/5246522.png" type="image/x-icon">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        surface: {
+                            50: '#fafafa',
+                            100: '#f4f4f5',
+                            200: '#e4e4e7',
+                            800: '#1a1a1f',
+                            900: '#09090b',
+                            950: '#030304',
+                        },
+                        accent: {
+                            DEFAULT: '#6366f1',
+                            light: '#818cf8',
+                            dark: '#4f46e5',
+                        }
+                    },
+                    animation: {
+                        'gradient': 'gradient 8s ease infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'glow': 'glow 2s ease-in-out infinite alternate',
+                        'slide-up': 'slideUp 0.5s ease-out',
+                        'fade-in': 'fadeIn 0.6s ease-out',
+                    },
+                    keyframes: {
+                        gradient: {
+                            '0%, 100%': { backgroundPosition: '0% 50%' },
+                            '50%': { backgroundPosition: '100% 50%' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-20px)' },
+                        },
+                        glow: {
+                            '0%': { opacity: '0.4' },
+                            '100%': { opacity: '0.8' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0c0c0f 0%, #1a1a2e 50%, #16161a 100%);
+            min-height: 100vh;
+        }
+
+        /* Ambient background orbs */
+        .orb {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.3;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .orb-1 {
+            width: 600px;
+            height: 600px;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            top: -200px;
+            right: -200px;
+            animation: float 8s ease-in-out infinite;
+        }
+
+        .orb-2 {
+            width: 400px;
+            height: 400px;
+            background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+            bottom: -100px;
+            left: -100px;
+            animation: float 10s ease-in-out infinite reverse;
+        }
+
+        .orb-3 {
+            width: 300px;
+            height: 300px;
+            background: linear-gradient(135deg, #f43f5e 0%, #ec4899 100%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation: glow 4s ease-in-out infinite;
+            opacity: 0.15;
+        }
+
+        /* Glass card effect */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 
+                0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+                0 20px 50px -12px rgba(0, 0, 0, 0.5),
+                0 0 80px -20px rgba(99, 102, 241, 0.15);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: 
+                0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+                0 25px 60px -15px rgba(0, 0, 0, 0.6),
+                0 0 100px -20px rgba(99, 102, 241, 0.25);
+        }
+
+        /* Premium input styling */
+        .premium-input {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .premium-input::placeholder {
+            color: rgba(255, 255, 255, 0.35);
+        }
+
+        .premium-input:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .premium-input:focus {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(99, 102, 241, 0.5);
+            box-shadow: 
+                0 0 0 3px rgba(99, 102, 241, 0.15),
+                0 0 20px -5px rgba(99, 102, 241, 0.3);
+            outline: none;
+        }
+
+        /* Section card styling */
+        .section-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .section-card:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Premium button */
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .btn-primary:hover::before {
+            opacity: 1;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 
+                0 10px 40px -10px rgba(99, 102, 241, 0.5),
+                0 0 20px -5px rgba(139, 92, 246, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary span,
+        .btn-primary svg {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Toggle button */
+        .toggle-btn {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.6);
+            transition: all 0.3s ease;
+        }
+
+        .toggle-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: #14141a;
+            border-radius: inherit;
+            z-index: -1;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* Divider with gradient */
+        .divider-gradient {
+            height: 1px;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(255, 255, 255, 0.1) 50%, 
+                transparent 100%);
+        }
+
+        /* Tooltip */
+        .tooltip-container { 
+            position: relative; 
+            display: inline-flex;
+            align-items: center;
+        }
+        
+        .tooltip {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            margin-bottom: 10px;
+            padding: 10px 14px;
+            background: rgba(17, 17, 24, 0.95);
+            backdrop-filter: blur(10px);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            white-space: nowrap;
+            z-index: 50;
+            box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: none;
+        }
+
+        .tooltip::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(17, 17, 24, 0.95) transparent transparent transparent;
+        }
+
+        .tooltip.show {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .hidden-fields { 
+            display: none; 
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            padding: 20px;
+        }
+
+        .modal-overlay.active { 
+            opacity: 1; 
+            pointer-events: auto; 
+        }
+
+        .modal-content {
+            background: linear-gradient(180deg, rgba(30, 30, 40, 0.98) 0%, rgba(20, 20, 28, 0.98) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            box-shadow: 
+                0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+                0 25px 80px -20px rgba(0, 0, 0, 0.8);
+            transform: scale(0.95) translateY(10px);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .modal-overlay.active .modal-content { 
+            transform: scale(1) translateY(0); 
+        }
+
+        /* Success icon animation */
+        .success-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            animation: slideUp 0.4s ease-out;
+        }
+
+        .success-icon svg {
+            color: #22c55e;
+        }
+
+        .error-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.1) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            animation: slideUp 0.4s ease-out;
+        }
+
+        .error-icon svg {
+            color: #ef4444;
+        }
+
+        /* Copy button in modal */
+        .copy-input-group {
+            display: flex;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .copy-input-group input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 14px 16px;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+        }
+
+        .copy-input-group input:focus {
+            outline: none;
+        }
+
+        .copy-btn {
+            padding: 14px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: none;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        /* Section label */
+        .section-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .section-label .icon {
+            width: 16px;
+            height: 16px;
+            opacity: 0.6;
+        }
+
+        /* Stagger animation for form elements */
+        .stagger-1 { animation: slideUp 0.5s ease-out 0.1s both; }
+        .stagger-2 { animation: slideUp 0.5s ease-out 0.2s both; }
+        .stagger-3 { animation: slideUp 0.5s ease-out 0.3s both; }
+        .stagger-4 { animation: slideUp 0.5s ease-out 0.4s both; }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Focus visible for accessibility */
+        *:focus-visible {
+            outline: 2px solid rgba(99, 102, 241, 0.5);
+            outline-offset: 2px;
+        }
+    </style>
+</head>
+
+<body class="text-white min-h-screen flex flex-col justify-center items-center px-4 py-12 relative overflow-x-hidden">
+    
+    <!-- Ambient orbs -->
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+
+    <div class="max-w-[460px] w-full mx-auto space-y-8 relative z-10">
+        
+        <!-- Header -->
+        <div class="text-center space-y-3 stagger-1">
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-accent/20 to-purple-500/20 border border-white/10 mb-4">
+                <svg class="w-7 h-7 text-accent-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent">
+                Link Generator
+            </h1>
+            <p class="text-sm text-white/40 font-medium">
+                Create intelligent deep links for your applications
+            </p>
+        </div>
+
+        <!-- Main Card -->
+        <div class="glass-card rounded-3xl p-7 sm:p-8 transition-all duration-500 stagger-2">
+            <form id="deepLinkForm" class="space-y-6">
+                
+                <!-- Primary Input -->
+                <div class="space-y-2">
+                    <label class="flex items-center gap-2 text-sm font-semibold text-white/80">
+                        <span>Destination URL</span>
+                        <span class="text-accent-light">*</span>
+                    </label>
+                    <input type="url" name="defaultFallbackUrl" required
+                        class="premium-input block w-full rounded-xl px-4 py-3.5 text-sm font-medium"
+                        placeholder="https://example.com">
+                </div>
+
+                <!-- Advanced Toggle -->
+                <div class="relative flex items-center justify-center py-1">
+                    <div class="divider-gradient absolute inset-x-0"></div>
+                    <button type="button" id="toggleAdvanced"
+                        class="toggle-btn relative px-5 py-2 rounded-full text-xs font-semibold tracking-wide">
+                        Advanced Settings
+                    </button>
+                </div>
+
+                <!-- Optional Fields -->
+                <div id="optionalFields" class="hidden-fields space-y-5">
+                    
+                    <!-- iOS Section -->
+                    <div class="section-card rounded-2xl p-5">
+                        <div class="section-label mb-4">
+                            <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                            </svg>
+                            <span>iOS Configuration</span>
+                        </div>
+                        <div class="space-y-3">
+                            <input type="text" name="iosDeepLink" 
+                                class="premium-input block w-full rounded-xl px-4 py-3 text-sm"
+                                placeholder="Custom Scheme (myapp://)">
+                            <input type="url" name="iosFallbackUrl" 
+                                class="premium-input block w-full rounded-xl px-4 py-3 text-sm"
+                                placeholder="App Store URL">
+                        </div>
+                    </div>
+
+                    <!-- Android Section -->
+                    <div class="section-card rounded-2xl p-5">
+                        <div class="section-label mb-4">
+                            <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                            </svg>
+                            <span>Android Configuration</span>
+                        </div>
+                        <div class="space-y-3">
+                            <input type="text" name="androidDeepLink" 
+                                class="premium-input block w-full rounded-xl px-4 py-3 text-sm"
+                                placeholder="Custom Scheme (myapp://)">
+                            <input type="url" name="androidFallbackUrl" 
+                                class="premium-input block w-full rounded-xl px-4 py-3 text-sm"
+                                placeholder="Play Store URL">
+                        </div>
+                    </div>
+
+                    <!-- Social Preview Section -->
+                    <div class="section-card rounded-2xl p-5">
+                        <div class="section-label mb-4">
+                            <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path>
+                            </svg>
+                            <span>Social Preview</span>
+                        </div>
+                        <div class="space-y-3">
+                            <input type="text" name="ogTitle" 
+                                class="premium-input block w-full rounded-xl px-4 py-3 text-sm"
+                                placeholder="Title">
+                            <textarea name="ogDescription" rows="2" 
+                                class="premium-input block w-full rounded-xl px-4 py-3 text-sm resize-none"
+                                placeholder="Description"></textarea>
+                            <input type="url" name="ogImageUrl" 
+                                class="premium-input block w-full rounded-xl px-4 py-3 text-sm"
+                                placeholder="Image URL">
+                        </div>
+                    </div>
+
+                    <!-- Webhook Section -->
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-2">
+                            <span class="section-label">
+                                <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                                </svg>
+                                Webhook
+                            </span>
+                            <div class="tooltip-container">
+                                <button type="button" id="tooltipButton" class="text-white/30 hover:text-white/60 transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                </button>
+                                <div id="tooltip" class="tooltip">
+                                    Method: POST • Type: JSON
+                                </div>
+                            </div>
+                        </div>
+                        <input type="url" name="webhookUrl" 
+                            class="premium-input block w-full rounded-xl px-4 py-3.5 text-sm"
+                            placeholder="https://your-server.com/webhook">
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" id="submitButton"
+                    class="btn-primary w-full flex items-center justify-center py-4 px-6 rounded-xl text-sm font-semibold text-white shadow-lg mt-2">
+                    <span class="button-text">Generate Link</span>
+                    <svg class="animate-spin ml-2 h-5 w-5 text-white hidden" id="loadingSpinner" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
+            </form>
+        </div>
+        
+        <!-- Footer -->
+        <p class="text-center text-xs text-white/25 font-medium stagger-3">
+            &copy; 2024 Link Generator &middot; Simple & Secure
+        </p>
+
+    </div>
+
+    <!-- Result Modal -->
+    <div id="resultModal" class="modal-overlay">
+        <div class="modal-content w-full max-w-sm p-7">
+            
+            <!-- Icon (dynamically shown) -->
+            <div id="modalIconSuccess" class="success-icon hidden">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <div id="modalIconError" class="error-icon hidden">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </div>
+
+            <div class="text-center mb-6">
+                <h3 id="modalTitle" class="text-xl font-bold text-white mb-2"></h3>
+                <p id="modalMessage" class="text-sm text-white/50"></p>
+            </div>
+            
+            <div id="modalShortUrlSection" class="hidden mb-6">
+                <label class="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Short URL</label>
+                <div class="copy-input-group">
+                    <input type="text" id="modalShortUrl" readonly>
+                    <button id="copyUrlButton" class="copy-btn">Copy</button>
+                </div>
+            </div>
+            
+            <button id="modalOkButton" 
+                class="w-full py-3.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-sm font-semibold text-white transition-all">
+                Close
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('deepLinkForm');
+            const submitButton = document.getElementById('submitButton');
+            const buttonText = submitButton.querySelector('.button-text');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const tooltipButton = document.getElementById('tooltipButton');
+            const tooltip = document.getElementById('tooltip');
+            const toggleAdvancedButton = document.getElementById('toggleAdvanced');
+            const optionalFields = document.getElementById('optionalFields');
+
+            const resultModal = document.getElementById('resultModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalMessage = document.getElementById('modalMessage');
+            const modalShortUrlSection = document.getElementById('modalShortUrlSection');
+            const modalShortUrlInput = document.getElementById('modalShortUrl');
+            const copyUrlButton = document.getElementById('copyUrlButton');
+            const modalOkButton = document.getElementById('modalOkButton');
+            const modalIconSuccess = document.getElementById('modalIconSuccess');
+            const modalIconError = document.getElementById('modalIconError');
+
+            const showModal = (title, message, shortUrl = null, isSuccess = true) => {
+                modalTitle.textContent = title;
+                modalMessage.textContent = message;
+
+                modalIconSuccess.classList.add('hidden');
+                modalIconError.classList.add('hidden');
+
+                if (isSuccess) {
+                    modalIconSuccess.classList.remove('hidden');
+                } else {
+                    modalIconError.classList.remove('hidden');
+                }
+
+                if (shortUrl) {
+                    modalShortUrlInput.value = shortUrl;
+                    modalShortUrlSection.classList.remove('hidden');
+                    copyUrlButton.textContent = 'Copy';
+                } else {
+                    modalShortUrlSection.classList.add('hidden');
+                }
+
+                resultModal.classList.add('active');
+            };
+
+            const hideModal = () => {
+                resultModal.classList.remove('active');
+            };
+
+            const copyToClipboard = async (text) => {
+                if (!navigator.clipboard) {
+                    try {
+                        const textArea = document.createElement("textarea");
+                        textArea.value = text;
+                        textArea.style.position = "fixed";
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        return true;
+                    } catch (err) {
+                        console.error('Fallback: Oops, unable to copy', err);
+                        return false;
+                    }
+                }
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch (err) {
+                    console.error('Async: Could not copy text: ', err);
+                    return false;
+                }
+            };
+
+            tooltipButton.addEventListener('mouseenter', () => tooltip.classList.add('show'));
+            tooltipButton.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+
+            toggleAdvancedButton.addEventListener('click', () => {
+                optionalFields.classList.toggle('hidden-fields');
+                toggleAdvancedButton.textContent = optionalFields.classList.contains('hidden-fields')
+                    ? 'Advanced Settings' : 'Hide Settings';
+            });
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                buttonText.textContent = 'Generating...';
+                loadingSpinner.classList.remove('hidden');
+                submitButton.disabled = true;
+                submitButton.style.opacity = '0.7';
+
+                const formData = {};
+                const fields = [
+                    'iosDeepLink', 'iosFallbackUrl', 'androidDeepLink', 'androidFallbackUrl',
+                    'defaultFallbackUrl', 'webhookUrl', 'ogTitle', 'ogDescription', 'ogImageUrl'
+                ];
+                fields.forEach(field => {
+                    const value = form[field]?.value?.trim();
+                    if (value) {
+                        formData[field] = value;
+                    }
+                });
+
+                try {
+                    const response = await fetch('/v1/urls', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(formData)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ message: 'Unknown server error' }));
+                        const errorMessage = errorData.message || `HTTP error! status: ${response.status}`;
+                        throw new Error(errorMessage);
+                    }
+
+                    const data = await response.json();
+                    const generatedShortKey = data.short_key;
+                    if (generatedShortKey === undefined) {
+                        throw new Error('Failed to generate short key');
+                    }
+
+                    const currentDomain = window.location.origin;
+                    const fullShortUrl = `${currentDomain}/${generatedShortKey}`;
+
+                    showModal('Link Created!', 'Your short link has been generated successfully.', fullShortUrl, true);
+
+                } catch (error) {
+                    console.error('Submission failed:', error);
+                    showModal('Error', error.message, null, false);
+
+                } finally {
+                    buttonText.textContent = 'Generate Link';
+                    loadingSpinner.classList.add('hidden');
+                    submitButton.disabled = false;
+                    submitButton.style.opacity = '1';
+                }
+            });
+
+            copyUrlButton.addEventListener('click', async () => {
+                const urlToCopy = modalShortUrlInput.value;
+                const success = await copyToClipboard(urlToCopy);
+                if (success) {
+                    copyUrlButton.textContent = 'Copied!';
+                    setTimeout(() => {
+                        copyUrlButton.textContent = 'Copy';
+                    }, 2000);
+                } else {
+                    alert('Failed to copy URL. Please copy it manually.');
+                }
+            });
+
+            modalOkButton.addEventListener('click', hideModal);
+            resultModal.addEventListener('click', (event) => {
+                if (event.target === resultModal) {
+                    hideModal();
+                }
+            });
+
+            // Keyboard accessibility
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && resultModal.classList.contains('active')) {
+                    hideModal();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# IDE
+.idea
+.vscode
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Database
+sqlite.db
+*.db
+
+# Rust build artifacts
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

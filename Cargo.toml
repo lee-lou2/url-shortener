@@ -1,0 +1,109 @@
+[package]
+name = "url-shortener"
+version = "0.1.0"
+edition = "2021"
+authors = ["URL Shortener Team"]
+description = "A URL shortening service with deep link support"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.10", features = ["cookie", "typed-header"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "compression-gzip", "compression-br", "compression-zstd"] }
+
+# Rate limiting
+tower_governor = "0.8"
+
+# Async runtime
+tokio = { version = "1.43", features = ["full", "sync"] }
+
+# Database with migration support
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "uuid", "migrate"] }
+
+# Redis connection pool
+deadpool-redis = "0.18"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+
+# Template engine (compile-time checked)
+askama = { version = "0.12", features = ["with-axum"] }
+askama_axum = "0.4"
+
+# JWT
+jsonwebtoken = "9.3"
+
+# Validation
+validator = { version = "0.19", features = ["derive"] }
+
+# Environment variables
+dotenvy = "0.15"
+
+# Error handling
+thiserror = "2.0"
+
+# Logging/Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Sentry error tracking (with rustls for no OpenSSL dependency)
+sentry = { version = "0.35", default-features = false, features = ["backtrace", "contexts", "panic", "tower", "tracing", "reqwest", "rustls"] }
+
+# Fast hashing (non-cryptographic, for deduplication)
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# Base62 encoding
+base62 = "2.0"
+
+# Random string generation
+rand = "0.8"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client for webhooks (with rustls)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Async utilities
+once_cell = "1.20"
+
+# Cookie encryption
+cookie = { version = "0.18", features = ["signed", "secure"] }
+
+# High-performance memory allocator
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+mimalloc = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Allow common patterns
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+struct_field_names = "allow"
+similar_names = "allow"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+opt-level = 3
+
+[profile.release.build-override]
+opt-level = 3
+
+[profile.release.package."*"]
+opt-level = 3
