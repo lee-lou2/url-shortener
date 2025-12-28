@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.85-alpine AS builder
+FROM rust:alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache musl-dev pkgconfig
@@ -17,10 +17,11 @@ RUN mkdir src && \
 # Build dependencies (this layer will be cached)
 RUN cargo build --release && rm -rf src
 
-# Copy source code
+# Copy source code and config files
 COPY src ./src
 COPY views ./views
 COPY migrations ./migrations
+COPY askama.toml ./
 
 # Touch main.rs to trigger rebuild
 RUN touch src/main.rs
