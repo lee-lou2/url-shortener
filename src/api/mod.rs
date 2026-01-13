@@ -1,4 +1,6 @@
-//! API 모듈.
+//! API module.
+//!
+//! Contains HTTP handlers, routes, schemas, and middleware.
 
 pub mod handlers;
 pub mod middlewares;

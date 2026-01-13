@@ -1,4 +1,6 @@
-//! 미들웨어 모듈.
+//! Middleware module.
+//!
+//! Provides authentication and other request processing middleware.
 
 use axum::{body::Body, extract::Request, http::header, middleware::Next, response::Response};
 use axum_extra::extract::CookieJar;

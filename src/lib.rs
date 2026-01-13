@@ -1,4 +1,4 @@
-//! URL 단축 서비스 라이브러리.
+//! URL shortening service library.
 
 pub mod api;
 pub mod config;

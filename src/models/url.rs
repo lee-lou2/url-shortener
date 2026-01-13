@@ -1,4 +1,6 @@
-//! URL 모델 모듈.
+//! URL model module.
+//!
+//! Contains URL entity, cache data, and repository for database operations.
 
 use std::borrow::Cow;
 use std::sync::Arc;

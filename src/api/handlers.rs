@@ -1,7 +1,8 @@
-//! HTTP 요청 핸들러 모듈.
+//! HTTP request handler module.
 
 use std::borrow::Cow;
 
+use askama::Template;
 use axum::{
     extract::{Path, State},
     http::header,
@@ -21,8 +22,6 @@ use crate::config::APP_CONFIG;
 use crate::error::{AppError, AppResult, ValidationErrorExt};
 use crate::models::{CreateOrFindResult, NewUrl, UrlCacheData, UrlRepository};
 use crate::utils::{gen_rand_str, gen_token, merge_short_key, split_short_key};
-
-use askama::Template;
 
 /// Index page template.
 #[derive(Template)]

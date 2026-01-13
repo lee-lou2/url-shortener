@@ -1,9 +1,12 @@
-//! Redis 캐시 설정 모듈.
+//! Redis cache configuration module.
+//!
+//! Provides Redis connection pool initialization and management.
+
+use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
+use once_cell::sync::OnceCell;
 
 use crate::config::env::{get_env, APP_CONFIG};
 use crate::error::AppResult;
-use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
-use once_cell::sync::OnceCell;
 
 static CACHE_POOL: OnceCell<Pool> = OnceCell::new();
 

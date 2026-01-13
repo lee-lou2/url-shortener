@@ -1,4 +1,6 @@
-//! 설정 모듈.
+//! Configuration module.
+//!
+//! Contains environment configuration, database, and cache pool initialization.
 
 pub mod cache;
 pub mod db;

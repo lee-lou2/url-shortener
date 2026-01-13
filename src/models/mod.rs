@@ -1,4 +1,6 @@
-//! 모델 모듈.
+//! Model module.
+//!
+//! Contains domain entities and repository pattern for data access.
 
 pub mod url;
 

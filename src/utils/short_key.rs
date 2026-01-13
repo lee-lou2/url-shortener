@@ -1,4 +1,6 @@
-//! 단축키 인코딩/디코딩 모듈.
+//! Short key encoding/decoding module.
+//!
+//! Provides Base62 encoding for collision-free short URL key generation.
 
 /// Length of the random prefix (first part of short key).
 pub const RAND_PREFIX_LEN: usize = 2;

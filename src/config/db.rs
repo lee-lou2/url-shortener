@@ -1,11 +1,15 @@
-//! 데이터베이스 설정 모듈.
+//! Database configuration module.
+//!
+//! Provides `PostgreSQL` connection pool initialization and management.
 
-use crate::config::env::{get_env, APP_CONFIG};
-use crate::error::AppResult;
+use std::time::Duration;
+
 use once_cell::sync::OnceCell;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
-use std::time::Duration;
+
+use crate::config::env::{get_env, APP_CONFIG};
+use crate::error::AppResult;
 
 static DB_POOL: OnceCell<PgPool> = OnceCell::new();
 

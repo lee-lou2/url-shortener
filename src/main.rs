@@ -1,4 +1,4 @@
-//! URL 단축 서비스 진입점.
+//! URL shortening service entry point.
 
 mod api;
 mod config;
@@ -14,9 +14,7 @@ use tokio::signal;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
-use tower_http::compression::CompressionLayer;
-use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::api::{create_routes, AppState};

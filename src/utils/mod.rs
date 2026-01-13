@@ -1,4 +1,6 @@
-//! 유틸리티 모듈.
+//! Utility module.
+//!
+//! Provides JWT, random string generation, and short key encoding utilities.
 
 pub mod jwt;
 pub mod rand;

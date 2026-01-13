@@ -1,4 +1,6 @@
-//! JWT 유틸리티 모듈.
+//! JWT utility module.
+//!
+//! Provides JWT token generation and parsing functions.
 
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use once_cell::sync::Lazy;
