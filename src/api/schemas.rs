@@ -1,8 +1,11 @@
-//! 요청/응답 스키마 모듈.
+//! Request/response schema module.
+//!
+//! Contains DTOs for API request validation and response serialization.
 
-use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
+
+use crate::error::AppError;
 
 /// Short URL creation request structure.
 ///

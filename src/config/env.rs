@@ -1,8 +1,11 @@
-//! 환경 변수 설정 모듈.
+//! Environment variable configuration module.
+//!
+//! Provides environment variable loading and the global `APP_CONFIG` instance.
 
-use once_cell::sync::Lazy;
 use std::env;
 use std::sync::Once;
+
+use once_cell::sync::Lazy;
 
 static INIT: Once = Once::new();
 

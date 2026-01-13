@@ -1,4 +1,6 @@
-//! 통합 테스트 모듈.
+//! Integration test module.
+//!
+//! Contains end-to-end tests for the URL shortening service.
 
 use url_shortener::api::schemas::{
     validate_short_key, CreateShortUrlRequest, CreateShortUrlResponse,

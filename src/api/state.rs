@@ -1,4 +1,6 @@
-//! 애플리케이션 상태 모듈.
+//! Application state module.
+//!
+//! Contains shared state for database and cache connections.
 
 use deadpool_redis::Pool as RedisPool;
 use sqlx::PgPool;

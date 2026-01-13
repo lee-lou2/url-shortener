@@ -1,4 +1,6 @@
-//! 라우트 설정 모듈.
+//! Route configuration module.
+//!
+//! Defines all HTTP routes and their middleware stack.
 
 use axum::{
     middleware,

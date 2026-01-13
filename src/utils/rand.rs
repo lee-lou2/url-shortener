@@ -1,4 +1,6 @@
-//! 랜덤 문자열 생성 모듈.
+//! Random string generation module.
+//!
+//! Provides secure random alphanumeric string generation.
 
 use rand::distributions::{Alphanumeric, DistString};
 

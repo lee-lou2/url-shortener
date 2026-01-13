@@ -1,4 +1,7 @@
-//! 중앙화된 에러 처리 모듈.
+//! Centralized error handling module.
+//!
+//! This module defines the `AppError` enum and `AppResult` type alias
+//! used throughout the application for consistent error handling.
 
 use axum::{
     http::StatusCode,
