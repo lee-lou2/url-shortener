@@ -12,6 +12,13 @@ use crate::error::AppResult;
 /// Minimum recommended length for JWT secrets.
 const MIN_SECRET_LENGTH: usize = 32;
 
+/// JWT signing secret loaded from environment.
+///
+/// # Security Behavior
+///
+/// - In production (`RUST_ENV=production`): Panics if `JWT_SECRET` is not set
+/// - In development: Uses an insecure default with a warning
+/// - Warns if secret is shorter than 32 characters
 static JWT_SECRET: Lazy<String> = Lazy::new(|| {
     let secret = get_env("JWT_SECRET", None);
     let env_mode = get_env("RUST_ENV", Some("development"));
@@ -39,6 +46,10 @@ static JWT_SECRET: Lazy<String> = Lazy::new(|| {
     }
 });
 
+/// JWT token expiration time in hours.
+///
+/// Loaded from `JWT_EXPIRATION_HOURS` environment variable.
+/// Defaults to 24 hours if not set or invalid.
 static JWT_EXPIRATION: Lazy<i64> = Lazy::new(|| {
     get_env("JWT_EXPIRATION_HOURS", Some("24"))
         .parse()

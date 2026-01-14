@@ -17,6 +17,8 @@ mod tests {
 
     use super::*;
 
+    // ============ Basic Length Tests ============
+
     #[test]
     fn test_gen_rand_str_length_zero() {
         let s = gen_rand_str(0);
@@ -48,6 +50,8 @@ mod tests {
         assert_eq!(s.len(), 100);
     }
 
+    // ============ Character Composition Tests ============
+
     #[test]
     fn test_gen_rand_str_alphanumeric_small() {
         let s = gen_rand_str(50);
@@ -59,6 +63,8 @@ mod tests {
         let s = gen_rand_str(1000);
         assert!(s.chars().all(|c| c.is_ascii_alphanumeric()));
     }
+
+    // ============ Uniqueness Tests ============
 
     #[test]
     fn test_gen_rand_str_unique() {
@@ -78,6 +84,8 @@ mod tests {
         // 100개 생성 시 모두 고유해야 함 (충돌 확률 매우 낮음)
         assert_eq!(set.len(), 100);
     }
+
+    // ============ Character Type Distribution Tests ============
 
     #[test]
     fn test_gen_rand_str_contains_digits() {

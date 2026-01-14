@@ -88,12 +88,15 @@ async fn main() {
     let cors = build_cors_layer();
 
     // Configure rate limiting with SmartIpKeyExtractor for better IP detection
-    let governor_config = GovernorConfigBuilder::default()
+    let Some(governor_config) = GovernorConfigBuilder::default()
         .per_second(APP_CONFIG.rate_limit_per_second)
         .burst_size(APP_CONFIG.rate_limit_burst_size)
         .key_extractor(SmartIpKeyExtractor)
         .finish()
-        .expect("Failed to build rate limiter config");
+    else {
+        tracing::error!("Failed to build rate limiter config");
+        std::process::exit(1);
+    };
 
     // Create router with middleware
     // Layer order (bottom to top execution): CORS -> Compression -> Trace -> Rate Limit
@@ -121,18 +124,25 @@ async fn main() {
     );
 
     // Create TCP listener
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .expect("Failed to bind to address");
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind to address {addr}: {e}");
+            std::process::exit(1);
+        }
+    };
 
     // Run server with graceful shutdown and ConnectInfo for rate limiting
-    axum::serve(
+    if let Err(e) = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await
-    .expect("Failed to start server");
+    {
+        tracing::error!("Server error: {e}");
+        std::process::exit(1);
+    }
 
     // Cleanup
     tracing::info!("Shutting down...");

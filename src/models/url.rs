@@ -16,7 +16,10 @@ use tokio::sync::Semaphore;
 use crate::config::APP_CONFIG;
 use crate::error::{AppError, AppResult};
 
-/// Global HTTP client with timeout, connection pooling, and pre-configured headers.
+/// Global HTTP client for webhook requests.
+///
+/// Configured with connection pooling and timeouts. Initialized once at first use.
+/// Panics if client creation fails, as this indicates a critical system issue.
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     let mut default_headers = HeaderMap::new();
     default_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -28,7 +31,7 @@ static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         .pool_idle_timeout(Duration::from_secs(60))
         .default_headers(default_headers)
         .build()
-        .expect("Failed to create HTTP client")
+        .expect("Failed to create HTTP client - check reqwest/TLS configuration")
 });
 
 /// Semaphore to limit concurrent webhook calls.

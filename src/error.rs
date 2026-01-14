@@ -67,6 +67,7 @@ pub enum AppError {
 }
 
 impl IntoResponse for AppError {
+    #[allow(clippy::cognitive_complexity)]
     fn into_response(self) -> Response {
         let (status, error_message) = match &self {
             Self::BadRequest(msg) | Self::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone()),

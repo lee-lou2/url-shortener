@@ -63,11 +63,14 @@ impl From<&UrlCacheData> for TemplateUrlData {
     }
 }
 
-/// Pre-rendered index page HTML (static content).
+/// Pre-rendered index page HTML.
+///
+/// Rendered once at startup. Panics if template rendering fails,
+/// as this indicates a critical build/deployment issue.
 static INDEX_HTML: Lazy<String> = Lazy::new(|| {
     IndexTemplate {}
         .render()
-        .expect("Failed to render index template")
+        .expect("Failed to render index template - check views/index.html exists")
 });
 
 /// Main page handler.
