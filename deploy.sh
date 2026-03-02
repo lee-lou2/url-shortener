@@ -15,9 +15,7 @@ if docker ps -a | grep -q ${IMAGE_NAME}; then
 fi
 
 # Run container
-# Note: Added --network for scripts_lou2-net integration
 docker run --name ${IMAGE_NAME} \
-  --network scripts_lou2-net \
   --env-file .env \
   --cpus="1" \
   --memory="512m" \
