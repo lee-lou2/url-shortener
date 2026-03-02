@@ -1,0 +1,22 @@
+name: CI/CD - URL Shortener
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and deploy
+        run: |
+          # Try to get existing .env
+          if [ -f "/home/lou2/.env.url-shortener" ]; then
+            cp /home/lou2/.env.url-shortener .env
+          fi
+          
+          chmod +x deploy.sh
+          ./deploy.sh
