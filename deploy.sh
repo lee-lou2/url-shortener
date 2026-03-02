@@ -1,4 +1,5 @@
 #!/bin/bash
+
 IMAGE_NAME="url-shortener"
 IMAGE_TAG="latest"
 INTERNAL_SERVER_PORT=3000
@@ -14,8 +15,9 @@ if docker ps -a | grep -q ${IMAGE_NAME}; then
 fi
 
 # Run container
-# Note: Configure environment variables according to your deployment environment
+# Note: Added --network for scripts_lou2-net integration
 docker run --name ${IMAGE_NAME} \
+  --network scripts_lou2-net \
   --env-file .env \
   --cpus="1" \
   --memory="512m" \
@@ -25,4 +27,3 @@ docker run --name ${IMAGE_NAME} \
   ${IMAGE_NAME}:${IMAGE_TAG}
 
 echo "Deployment complete. Container ${IMAGE_NAME} is running on port ${EXTERNAL_SERVER_PORT}"
-
