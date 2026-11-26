@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Short key generation · url-shortener</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #f5f5f5;
+      --color-ink:    #2d3142;
+      --color-muted:  #4f5d75;
+      --color-accent: #bf4520;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1200px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Encoding · src/utils/short_key.rs</p>
+    <h1>Short key generation</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 436" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="short-key-encoding-title short-key-encoding-desc">
+        <title id="short-key-encoding-title">Short key generation</title>
+        <desc id="short-key-encoding-desc">Pipeline showing a PostgreSQL BIGSERIAL ID Base62-encoded and wrapped with a 2-character random prefix and 2-character suffix to produce a collision-free, non-sequential short key.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+        <!-- Zones -->
+        <rect x="40" y="92" width="184" height="248" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <rect x="52" y="96" width="40" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="72" y="105" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">INPUT</text>
+        <rect x="284" y="92" width="412" height="248" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <rect x="296" y="96" width="60" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="326" y="105" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">TRANSFORM</text>
+        <rect x="748" y="152" width="172" height="132" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <rect x="760" y="156" width="44" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="782" y="165" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">OUTPUT</text>
+
+        <!-- Connectors -->
+        <line x1="208" y1="160" x2="300" y2="160" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="208" y1="280" x2="300" y2="280" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 456,160 H 488 Q 496,160 496,168 V 196 Q 496,204 504,204 H 532" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 456,280 H 488 Q 496,280 496,272 V 244 Q 496,236 504,236 H 532" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="680" y1="220" x2="760" y2="220" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+
+        <!-- Arrow labels -->
+        <rect x="232" y="140" width="44" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="254" y="149" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">U64 ID</text>
+        <rect x="228" y="260" width="52" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="254" y="269" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">4 CHARS</text>
+        <rect x="476" y="136" width="40" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="496" y="145" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">&quot;3D7&quot;</text>
+        <rect x="460" y="292" width="72" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="496" y="301" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">&quot;AB&quot; + &quot;XY&quot;</text>
+        <rect x="700" y="200" width="40" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="720" y="209" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">MERGE</text>
+
+        <!-- Editorial callout -->
+        <text x="920" y="56" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">reversible via split_short_key · random_key blocks enumeration</text>
+        <path d="M 860,64 Q 844,108 836,188" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="1" stroke-dasharray="4,3"/>
+        <circle cx="836" cy="188" r="2" fill="#2d3142"/>
+
+        <!-- Nodes -->
+        <rect x="56" y="128" width="152" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="56" y="128" width="152" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <rect x="64" y="134" width="28" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="78" y="143" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">PK</text>
+        <text x="132" y="166" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">DB ID</text>
+        <text x="132" y="182" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">12345 · BIGSERIAL</text>
+        <rect x="56" y="248" width="152" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="56" y="248" width="152" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <rect x="64" y="254" width="32" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="80" y="263" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">RAND</text>
+        <text x="132" y="286" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Random Key</text>
+        <text x="132" y="302" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">&quot;AbXy&quot; · 4 chars</text>
+        <rect x="300" y="128" width="156" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="300" y="128" width="156" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="308" y="134" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+        <text x="322" y="143" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">B62</text>
+        <text x="378" y="166" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Base62 Encode</text>
+        <text x="378" y="182" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">base62(12345) → 3D7</text>
+        <rect x="300" y="248" width="156" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="300" y="248" width="156" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="308" y="254" width="40" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+        <text x="328" y="263" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">SPLIT</text>
+        <text x="378" y="286" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Split 2 + 2</text>
+        <text x="378" y="302" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">prefix Ab · suffix Xy</text>
+        <rect x="532" y="188" width="148" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="532" y="188" width="148" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="540" y="194" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+        <text x="556" y="203" fill="#2d3142" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">JOIN</text>
+        <text x="606" y="226" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Merge Key</text>
+        <text x="606" y="242" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">prefix + b62 + suffix</text>
+        <rect x="760" y="188" width="148" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="760" y="188" width="148" height="64" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+        <rect x="768" y="194" width="28" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.50)" stroke-width="0.8"/>
+        <text x="782" y="203" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">KEY</text>
+        <text x="834" y="226" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Short Key</text>
+        <text x="834" y="242" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Ab3D7Xy · min 5 chars</text>
+
+        <!-- Legend strip -->
+        <line x1="40" y1="368" x2="920" y2="368" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <text x="40" y="384" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="40" y="400" width="14" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <text x="60" y="408" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">DB inputs</text>
+        <rect x="156" y="400" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="176" y="408" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Deterministic transform</text>
+        <rect x="348" y="400" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+        <text x="368" y="408" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Collision-free output</text>
+        <line x1="528" y1="405" x2="556" y2="405" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <text x="564" y="408" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Final key assembly</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

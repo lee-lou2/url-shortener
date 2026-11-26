@@ -6,209 +6,82 @@
 
 ![demo site](docs/screenshot.png)
 
-A high-performance URL shortening service built with Rust. Supports deep link handling, platform-specific redirects, JWT authentication, and webhook notifications.
+A high-performance URL shortening service built with Rust. Supports deep link handling, platform-specific redirects, Open Graph metadata, JWT authentication, Redis MessagePack caching, and semaphore-bounded webhook notifications.
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph Client["🌐 Client"]
-        Browser[Browser]
-        Mobile[Mobile App]
-    end
-
-    subgraph Server["⚡ API Server (Axum)"]
-        Router[Router]
-        Auth[JWT Auth]
-        RateLimit[Rate Limiter]
-        Handler[Handler]
-    end
-
-    subgraph Storage["💾 Storage"]
-        Redis[(Redis Cache)]
-        PostgreSQL[(PostgreSQL)]
-    end
-
-    subgraph External["🔔 External"]
-        Webhook[Webhook Endpoint]
-    end
-
-    Browser --> Router
-    Mobile --> Router
-    Router --> RateLimit
-    RateLimit --> Auth
-    Auth --> Handler
-    Handler <--> Redis
-    Handler <--> PostgreSQL
-    Handler -.->|async| Webhook
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
+  <img alt="System architecture — Clients, Tower middleware, JWT auth, Axum handlers, Redis cache, PostgreSQL, Webhook, and Sentry" src="docs/diagrams/architecture.png" width="960">
+</picture>
 
 ## Core Technologies
 
 | Area | Technology | Description |
 |------|------------|-------------|
-| Web Framework | **Axum 0.8** | Async HTTP server |
-| Database | **PostgreSQL + SQLx** | Type-safe queries |
-| Cache | **Redis + MessagePack** | High-speed serialized caching |
-| Auth | **JWT** | Token-based authentication |
-| Hashing | **xxHash (xxh3_128)** | Duplicate URL detection |
-| Memory | **mimalloc** | High-performance allocator |
+| Web Framework | **Axum 0.8 + Tower** | Async HTTP server, SmartIP rate limiting, gzip/br/zstd compression |
+| Database | **PostgreSQL + SQLx** | Type-safe queries and automatic migrations |
+| Cache | **Redis + MessagePack** | High-speed `rmp-serde` binary caching (`urls:{short_key}`) |
+| Auth | **JWT** | `Authorization: Bearer` header and `token` cookie authentication |
+| Hashing | **xxHash (`xxh3_128`)** | Fast duplicate URL detection with race-safe `ON CONFLICT` |
+| Templates | **Askama** | Compile-time checked HTML rendering (OG tags + deep link script) |
+| Memory | **mimalloc** | High-performance global allocator |
+| Observability | **Sentry + tracing** | Structured logging and automatic 5xx error reporting |
 
 ## URL Creation Flow
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as API Server
-    participant R as Redis
-    participant DB as PostgreSQL
-
-    C->>S: POST /v1/urls (URL data + JWT)
-    S->>S: Validate JWT
-    S->>S: Validate input
-    S->>S: Generate xxHash (for dedup)
-    S->>DB: INSERT ... ON CONFLICT
-    
-    alt New URL
-        DB-->>S: Created URL (id, random_key)
-        S->>S: Base62 encode (generate short_key)
-    else Existing URL
-        DB-->>S: Return existing URL
-    end
-    
-    S-->>C: { short_key: "Ab3D7Xy" }
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-creation-flow-dark.png">
+  <img alt="URL creation sequence — POST /v1/urls with JWT auth, validation, xxHash deduplication, and PostgreSQL ON CONFLICT" src="docs/diagrams/url-creation-flow.png" width="960">
+</picture>
 
 ### Short Key Generation
 
-```mermaid
-flowchart LR
-    subgraph Input["Input"]
-        ID["DB ID: 12345"]
-        RK["Random Key: AbXy"]
-    end
-
-    subgraph Process["Process"]
-        B62["Base62 Encode"]
-        Split["Split Random Key"]
-    end
-
-    subgraph Output["Output"]
-        SK["Short Key: Ab3D7Xy"]
-    end
-
-    ID --> B62
-    B62 --> |"3D7"| Merge
-    RK --> Split
-    Split --> |"Prefix: Ab"| Merge
-    Split --> |"Suffix: Xy"| Merge
-    Merge["Merge"] --> SK
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/short-key-encoding-dark.png">
+  <img alt="Short key encoding pipeline — Base62 DB ID wrapped with 2-char random prefix and 2-char suffix" src="docs/diagrams/short-key-encoding.png" width="960">
+</picture>
 
 **Features:**
-- No collisions (based on DB ID)
-- Random prefix/suffix prevents sequential guessing
-- Consistent performance (independent of DB size)
+- Collision-free generation backed by PostgreSQL `BIGSERIAL` IDs
+- 4-character random key split into 2-char prefix + 2-char suffix to prevent sequential enumeration
+- Reversible via `split_short_key` and verified against stored `random_key` on cache miss
+- Constant-time key generation independent of table size
 
 ## URL Redirect Flow
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as API Server
-    participant R as Redis
-    participant DB as PostgreSQL
-    participant W as Webhook
-
-    C->>S: GET /Ab3D7Xy
-    S->>S: Parse short_key (extract id + random_key)
-    
-    S->>R: GET url:{id}
-    alt Cache Hit
-        R-->>S: MessagePack data
-    else Cache Miss
-        R-->>S: null
-        S->>DB: SELECT * FROM urls WHERE id = ?
-        DB-->>S: URL data
-        S->>R: SETEX url:{id} (TTL: 1 hour)
-    end
-
-    S->>S: Validate random_key
-    S->>S: Detect platform (iOS/Android/Other)
-    
-    par Async Webhook Call
-        S--)W: POST (short_key, user_agent, timestamp)
-    end
-
-    S-->>C: HTML (deep link + fallback URL)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-redirect-flow-dark.png">
+  <img alt="URL redirect sequence — Redis cache lookup by urls:{short_key}, PostgreSQL fallback, Askama HTML response, and async semaphore-bounded webhook" src="docs/diagrams/url-redirect-flow.png" width="960">
+</picture>
 
 ### Platform-Specific Redirect
 
-```mermaid
-flowchart TD
-    Request[Request Received] --> Detect{User-Agent Analysis}
-    
-    Detect -->|iOS| iOS{Deep Link Set?}
-    Detect -->|Android| Android{Deep Link Set?}
-    Detect -->|Other| Default[Default Fallback URL]
-    
-    iOS -->|Yes| iOSDeep[Try iOS Deep Link]
-    iOS -->|No| iOSFallback[iOS Fallback URL]
-    iOSDeep -->|On Failure| iOSFallback
-    
-    Android -->|Yes| AndroidDeep[Try Android Deep Link]
-    Android -->|No| AndroidFallback[Android Fallback URL]
-    AndroidDeep -->|On Failure| AndroidFallback
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/platform-redirect-dark.png">
+  <img alt="Platform-specific redirect flowchart — User-Agent branching for iOS/Android deep links with 2000ms fallback timer and default web fallback" src="docs/diagrams/platform-redirect.png" width="960">
+</picture>
 
-    iOSFallback --> Response[Redirect]
-    AndroidFallback --> Response
-    Default --> Response
-```
+- Open Graph, Twitter Card, and Schema.org tags are rendered server-side in HTML so social crawlers read link previews before client JS runs.
+- On iOS/Android, configured deep links are launched first with a `2000ms` fallback timer to the platform fallback URL (or `default_fallback_url` when unset).
 
 ## Caching Strategy
 
-```mermaid
-flowchart LR
-    subgraph Request["Request"]
-        R1[URL Lookup]
-    end
-
-    subgraph Cache["Redis Cache"]
-        Check{Check Cache}
-        Hit[Cache Hit]
-        Miss[Cache Miss]
-        Update[Update Cache]
-    end
-
-    subgraph DB["PostgreSQL"]
-        Query[DB Query]
-    end
-
-    subgraph Serialize["Serialization"]
-        MP[MessagePack]
-    end
-
-    R1 --> Check
-    Check -->|Exists| Hit
-    Check -->|Not Found| Miss
-    Miss --> Query
-    Query --> MP
-    MP --> Update
-    Update --> Hit
-    Hit --> Response[Response]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/caching-strategy-dark.png">
+  <img alt="Cache-aside strategy — Redis MessagePack lookup, PostgreSQL fallback on miss, and 3600s SETEX write-back" src="docs/diagrams/caching-strategy.png" width="960">
+</picture>
 
 **Why MessagePack:**
-- 30-50% smaller than JSON
-- Fast serialization/deserialization
-- Binary format for efficient Redis storage
+- 30–50% smaller than JSON (`UrlCacheData` omits timestamp columns)
+- Fast binary serialization/deserialization (`rmp-serde`)
+- Graceful fallback: cache write failures are logged without blocking redirect responses
 
 ## Getting Started
 
 ### Prerequisites
 
-- Rust 1.75+
+- Rust (stable, pinned via `rust-toolchain.toml`)
 - PostgreSQL
 - Redis
 
@@ -237,17 +110,32 @@ docker run -p 3000:3000 --env-file .env url-shortener
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SERVER_PORT` | 3000 | Server port |
-| `DB_HOST` | localhost | PostgreSQL host |
-| `REDIS_HOST` | localhost | Redis host |
-| `JWT_SECRET` | - | JWT secret (required in production) |
-| `CACHE_TTL_SECS` | 3600 | Cache TTL (seconds) |
-| `RATE_LIMIT_PER_SECOND` | 10 | Requests per second limit |
-| `WEBHOOK_MAX_CONCURRENT` | 100 | Max concurrent webhooks |
+| `SERVER_PORT` | `3000` | HTTP server port |
+| `RUST_ENV` | `development` | Runtime mode (`production` enforces `JWT_SECRET` & Secure cookies) |
+| `DB_HOST` | `localhost` | PostgreSQL host |
+| `REDIS_HOST` | `localhost` | Redis host |
+| `REDIS_MAX_CONNECTIONS` | `20` | Max Redis pool connections |
+| `JWT_SECRET` | - | JWT secret (required in production, min 32 chars) |
+| `CACHE_TTL_SECS` | `3600` | Redis cache TTL (seconds) |
+| `RATE_LIMIT_PER_SECOND` | `10` | Requests per second limit |
+| `RATE_LIMIT_BURST_SIZE` | `50` | Rate limiter burst size |
+| `WEBHOOK_TIMEOUT_SECS` | `10` | Webhook HTTP request timeout (seconds) |
+| `WEBHOOK_MAX_CONCURRENT` | `100` | Max concurrent webhook tasks (semaphore) |
+| `RUN_MIGRATIONS` | `true` | Auto-run SQLx migrations on startup |
 
 ## API
 
+| Method | Path | Auth | Description |
+|--------|------|:----:|-------------|
+| `GET` | `/` | - | Renders main page and issues guest JWT cookie (`token`) |
+| `POST` | `/v1/urls` | JWT | Creates a short URL (returns existing `short_key` on duplicate) |
+| `GET` | `/{short_key}` | - | Returns OG-enabled HTML page for platform-aware redirect |
+| `GET` | `/health` | - | Liveness probe (`{ status, version }`) |
+| `GET` | `/ready` | - | Readiness probe (verifies PostgreSQL and Redis connectivity) |
+
 ### `POST /v1/urls` - Create URL
+
+Requires `Authorization: Bearer <token>` header or `token` cookie.
 
 **Request:**
 ```json
@@ -274,19 +162,28 @@ docker run -p 3000:3000 --env-file .env url-shortener
 
 ### `GET /{short_key}` - Redirect
 
-Redirects the short URL to the original URL.
+Returns the Askama-rendered HTML redirect page and, if `webhookUrl` is configured, fires an async `POST` webhook with `{ short_key, user_agent }`.
 
 ## Project Structure
 
 ```
-src/
-├── main.rs           # Entry point
-├── error.rs          # Error handling
-├── api/              # HTTP handlers, routes, middleware
-├── config/           # Environment config, DB/Redis connections
-├── models/           # Data models, repositories
-└── utils/            # JWT, Base62, random strings
+├── src/
+│   ├── main.rs           # Entry point, middleware stack, graceful shutdown
+│   ├── lib.rs            # Library crate exports
+│   ├── error.rs          # Centralized error handling (AppError, AppResult)
+│   ├── api/              # HTTP handlers, routes, schemas, JWT middleware
+│   ├── config/           # Environment config, PostgreSQL/Redis pool setup
+│   ├── models/           # Url, UrlCacheData, UrlRepository, async webhooks
+│   └── utils/            # JWT, Base62 short keys, random strings
+├── migrations/           # SQLx migration files
+├── views/                # Askama HTML templates (index.html, redirect.html)
+├── tests/                # Integration tests (runnable without DB)
+└── docs/
+    ├── screenshot.png    # Demo screenshot
+    └── diagrams/         # Editorial architecture & flow diagrams (PNG + HTML/SVG sources)
 ```
+
+See [docs/diagrams/README.md](docs/diagrams/README.md) for the full diagram catalog and editable HTML/SVG sources.
 
 ## License
 
