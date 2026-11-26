@@ -39,67 +39,26 @@
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph Client["🌐 Client"]
-        Browser[Browser]
-        Mobile[Mobile App]
-    end
-
-    subgraph Server["⚡ API Server (Axum)"]
-        Router[Router]
-        RateLimit[Rate Limiter]
-        Auth[JWT Auth Middleware]
-        Handler[Handler]
-    end
-
-    subgraph Storage["💾 Storage"]
-        Redis[(Redis Cache)]
-        PostgreSQL[(PostgreSQL)]
-    end
-
-    subgraph External["🔔 External"]
-        Webhook[Webhook Endpoint]
-        Sentry[Sentry Error Tracking]
-    end
-
-    Browser --> Router
-    Mobile --> Router
-    Router --> RateLimit
-    RateLimit --> Auth
-    Auth --> Handler
-    Handler <--> Redis
-    Handler <--> PostgreSQL
-    Handler -.->|async| Webhook
-    Handler -.->|error report| Sentry
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
+  <img alt="System architecture — Clients, Tower middleware, JWT auth, Axum handlers, Redis cache, PostgreSQL, Webhook, and Sentry" src="docs/diagrams/architecture.png" width="960">
+</picture>
 
 ### Data Flow
 
-```mermaid
-flowchart LR
-    subgraph Create["URL Creation"]
-        C1[API Request] --> C2[JWT Validation]
-        C2 --> C3[Input Validation]
-        C3 --> C4[xxHash Generation]
-        C4 --> C5[DB Save<br/>ON CONFLICT]
-        C5 --> C6[Return Short Key]
-    end
-```
+#### URL Creation (`POST /v1/urls`)
 
-```mermaid
-flowchart LR
-    subgraph Redirect["URL Redirect"]
-        R1[Short Key Request] --> R2[Parse short_key]
-        R2 --> R3{Cache Lookup}
-        R3 -->|Hit| R5[Validate random_key]
-        R3 -->|Miss| R4[DB Query → Update Cache]
-        R4 --> R5
-        R5 --> R6[Platform Detection]
-        R6 --> R7[Webhook Call<br/>async]
-        R6 --> R8[Redirect Page]
-    end
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-creation-flow-dark.png">
+  <img alt="URL creation sequence" src="docs/diagrams/url-creation-flow.png" width="960">
+</picture>
+
+#### URL Redirect (`GET /{short_key}`)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-redirect-flow-dark.png">
+  <img alt="URL redirect sequence" src="docs/diagrams/url-redirect-flow.png" width="960">
+</picture>
 
 ---
 
@@ -136,6 +95,7 @@ tests/
 
 migrations/                 # SQLx migration files
 views/                      # Askama HTML templates
+docs/diagrams/              # Editorial diagrams (PNG + HTML/SVG sources)
 ```
 
 ---
@@ -144,44 +104,19 @@ views/                      # Askama HTML templates
 
 ### Error Handling (`src/error.rs`)
 
-```mermaid
-flowchart TD
-    subgraph Errors["Error Types"]
-        BadRequest["BadRequest (400)"]
-        Unauthorized["Unauthorized (401)"]
-        NotFound["NotFound (404)"]
-        Validation["Validation (400)"]
-        Internal["Internal (500)"]
-    end
-
-    subgraph From["Auto Conversion (#from)"]
-        SqlxError[sqlx::Error]
-        RedisError[redis::RedisError]
-        JwtError[jsonwebtoken::Error]
-        AskamaError[askama::Error]
-        ReqwestError[reqwest::Error]
-    end
-
-    SqlxError --> Internal
-    RedisError --> Internal
-    JwtError --> Unauthorized
-    AskamaError --> Internal
-    ReqwestError --> Internal
-```
+| Variant | Source (`#[from]`) | HTTP Status | Sentry Capture |
+|---------|--------------------|-------------|----------------|
+| `BadRequest` / `Validation` | manual / `ValidationErrorExt` | `400 Bad Request` | No |
+| `Json` | `serde_json::Error` | `400 Bad Request` | No |
+| `Unauthorized` / `Jwt` | manual / `jsonwebtoken::errors::Error` | `401 Unauthorized` | No |
+| `NotFound` | manual | `404 Not Found` | No |
+| `Internal` | manual | `500 Internal Server Error` | Yes |
+| `Database` | `sqlx::Error` | `500 Internal Server Error` | Yes |
+| `Redis` / `RedisPool` | `deadpool_redis` errors | `500 Internal Server Error` | Yes |
+| `Template` | `askama::Error` | `500 Internal Server Error` | Yes |
+| `HttpClient` | `reqwest::Error` | `500 Internal Server Error` | Yes |
 
 ```rust
-#[derive(Error, Debug)]
-pub enum AppError {
-    BadRequest(String),      // 400
-    Unauthorized(String),    // 401
-    NotFound(String),        // 404
-    Validation(String),      // 400
-    Internal(String),        // 500
-    Database(#[from] sqlx::Error),
-    Redis(#[from] deadpool_redis::redis::RedisError),
-    // ...
-}
-
 pub type AppResult<T> = Result<T, AppError>;
 ```
 
@@ -195,10 +130,10 @@ pub async fn handler_name(
 ) -> AppResult<impl IntoResponse> {
     // 1. Validation
     body.validate().map_err(|e| e.to_validation_error())?;
-    
+
     // 2. Business logic
     let result = do_something(&state.db).await?;
-    
+
     // 3. Return response
     Ok(Json(ResponseType { ... }))
 }
@@ -206,45 +141,18 @@ pub async fn handler_name(
 
 ### URL Repository (`src/models/url.rs`)
 
-```mermaid
-flowchart LR
-    subgraph Repository["UrlRepository"]
-        FindById["find_by_id()"]
-        FindByIdForCache["find_by_id_for_cache()"]
-        FindByHash["find_by_hashed_value()"]
-        CreateOrFind["create_or_find()"]
-    end
+| Method | Return Type | Purpose |
+|--------|-------------|---------|
+| `find_by_hashed_value(pool, hash)` | `AppResult<Option<Url>>` | Lookup active (non-deleted) URL by `xxh3_128` hash |
+| `find_by_id_for_cache(pool, id)` | `AppResult<Option<UrlCacheData>>` | Cache-miss query excluding timestamp columns (`is_active = true`) |
+| `create_or_find(pool, new_url)` | `AppResult<CreateOrFindResult>` | Race-safe `INSERT ... ON CONFLICT DO NOTHING` → `Created(Url)` or `Existing(Url)` |
 
-    subgraph Result["CreateOrFindResult"]
-        Created["Created(Url)"]
-        Existing["Existing(Url)"]
-    end
+### Webhook Concurrency Control (`src/models/url.rs`)
 
-    CreateOrFind --> Created
-    CreateOrFind --> Existing
-```
+`UrlCacheData::spawn_webhook_task()` spawns a non-blocking `tokio::spawn` task that calls `WEBHOOK_SEMAPHORE.try_acquire()`:
 
-### Webhook Concurrency Control
-
-```mermaid
-sequenceDiagram
-    participant H as Handler
-    participant S as Semaphore
-    participant W as Webhook Task
-
-    H->>H: spawn_webhook_task()
-    H->>S: try_acquire_owned()
-    
-    alt permit acquired
-        S-->>H: Ok(permit)
-        H->>W: tokio::spawn(async)
-        W->>W: HTTP POST request
-        W->>S: auto return permit (drop)
-    else permit failed
-        S-->>H: Err (concurrency exceeded)
-        Note over H: Skip webhook
-    end
-```
+1. **Permit acquired**: sends `POST` JSON `{ short_key, user_agent }` via shared `HTTP_CLIENT` (`WEBHOOK_TIMEOUT_SECS`, default `10s`) and drops the permit on completion.
+2. **Queue full (`Err`)**: logs a warning and skips the notification without blocking the redirect response.
 
 ```rust
 static WEBHOOK_SEMAPHORE: Lazy<Arc<Semaphore>> =
@@ -292,6 +200,8 @@ static WEBHOOK_SEMAPHORE: Lazy<Arc<Semaphore>> =
 | GET | `/` | ❌ | Main page + guest JWT issuance |
 | POST | `/v1/urls` | ✅ | Create short URL |
 | GET | `/{short_key}` | ❌ | Redirect to original URL |
+| GET | `/health` | ❌ | Liveness probe |
+| GET | `/ready` | ❌ | Readiness probe (DB + Redis) |
 
 ---
 
@@ -394,11 +304,9 @@ use crate::config::APP_CONFIG;
 
 ### Adding a New Handler
 
-```mermaid
-flowchart LR
-    A[schemas.rs<br/>Define DTO] --> B[handlers.rs<br/>Implement Handler]
-    B --> C[routes.rs<br/>Register Route]
-```
+1. Define and validate the DTO in `src/api/schemas.rs`.
+2. Implement `*_handler` in `src/api/handlers.rs`.
+3. Register the route (and `jwt_auth` layer if protected) in `src/api/routes.rs`.
 
 ```rust
 // 1. src/api/schemas.rs
@@ -425,30 +333,29 @@ pub async fn new_feature_handler(
 
 ### Caching Pattern
 
-```mermaid
-flowchart TD
-    A[Cache Lookup] --> B{Cache Hit?}
-    B -->|Yes| C[MessagePack Deserialize]
-    B -->|No| D[DB Query]
-    D --> E[MessagePack Serialize]
-    E --> F[Cache Store SETEX]
-    C --> G[Return]
-    F --> G
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/caching-strategy-dark.png">
+  <img alt="Cache-aside strategy — Redis MessagePack lookup, PostgreSQL fallback on miss, and 3600s SETEX write-back" src="docs/diagrams/caching-strategy.png" width="960">
+</picture>
 
 ```rust
-// 1. Try cache
-if let Some(cached) = redis.get(key).await? {
-    return Ok(rmp_serde::from_slice(&cached)?);
+// 1. Try cache (`urls:{short_key}`)
+let cache_key = format!("urls:{short_key}");
+if let Ok(cached) = redis.get::<_, Vec<u8>>(&cache_key).await {
+    if let Ok(data) = rmp_serde::from_slice::<UrlCacheData>(&cached) {
+        return Ok(data);
+    }
 }
 
-// 2. DB fallback
-let data = Repository::find(&db, id).await?;
+// 2. DB fallback (`split_short_key` + `random_key` check)
+let (id, rand_key) = split_short_key(&short_key);
+let data = UrlRepository::find_by_id_for_cache(&db, id as i64).await?;
 
 // 3. Update cache
 if let Some(data) = &data {
-    let serialized = rmp_serde::to_vec(data)?;
-    redis.setex(key, ttl, serialized).await?;
+    if let Ok(serialized) = rmp_serde::to_vec(data) {
+        let _: Result<(), _> = redis.set_ex(&cache_key, serialized, APP_CONFIG.cache_ttl_secs).await;
+    }
 }
 ```
 

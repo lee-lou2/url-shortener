@@ -6,209 +6,82 @@
 
 ![demo site](docs/screenshot.png)
 
-Rust로 개발된 고성능 URL 단축 서비스입니다. 딥 링크 처리, 플랫폼별 리디렉션, JWT 인증, 웹훅 알림을 지원합니다.
+Rust로 개발된 고성능 URL 단축 서비스입니다. 딥 링크 처리, 플랫폼별 리디렉션, OG 메타 태그, JWT 인증, Redis MessagePack 캐싱, 웹훅 알림을 지원합니다.
 
 ## 아키텍처
 
-```mermaid
-flowchart TB
-    subgraph Client["🌐 클라이언트"]
-        Browser[브라우저]
-        Mobile[모바일 앱]
-    end
-
-    subgraph Server["⚡ API 서버 (Axum)"]
-        Router[라우터]
-        Auth[JWT 인증]
-        RateLimit[레이트 리미터]
-        Handler[핸들러]
-    end
-
-    subgraph Storage["💾 저장소"]
-        Redis[(Redis Cache)]
-        PostgreSQL[(PostgreSQL)]
-    end
-
-    subgraph External["🔔 외부"]
-        Webhook[웹훅 엔드포인트]
-    end
-
-    Browser --> Router
-    Mobile --> Router
-    Router --> RateLimit
-    RateLimit --> Auth
-    Auth --> Handler
-    Handler <--> Redis
-    Handler <--> PostgreSQL
-    Handler -.->|비동기| Webhook
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
+  <img alt="System architecture — Clients, Tower middleware, JWT auth, Axum handlers, Redis cache, PostgreSQL, Webhook, and Sentry" src="docs/diagrams/architecture.png" width="960">
+</picture>
 
 ## 핵심 기술
 
 | 영역 | 기술 | 설명 |
 |------|------|------|
-| 웹 프레임워크 | **Axum 0.8** | 비동기 HTTP 서버 |
-| 데이터베이스 | **PostgreSQL + SQLx** | 타입 안전 쿼리 |
-| 캐시 | **Redis + MessagePack** | 고속 직렬화 캐싱 |
-| 인증 | **JWT** | 토큰 기반 인증 |
-| 해싱 | **xxHash (xxh3_128)** | 중복 URL 감지 |
-| 메모리 | **mimalloc** | 고성능 할당자 |
+| 웹 프레임워크 | **Axum 0.8 + Tower** | 비동기 HTTP 서버, SmartIP 레이트 리미팅, gzip/br/zstd 압축 |
+| 데이터베이스 | **PostgreSQL + SQLx** | 타입 안전 쿼리, 자동 마이그레이션 |
+| 캐시 | **Redis + MessagePack** | `rmp-serde` 바이너리 직렬화 캐싱 (`urls:{short_key}`) |
+| 인증 | **JWT** | `Authorization: Bearer` 헤더 및 `token` 쿠키 인증 |
+| 해싱 | **xxHash (`xxh3_128`)** | 중복 URL 고속 감지 (`ON CONFLICT` 레이스 방지) |
+| 템플릿 | **Askama** | 컴파일 타임 검증 HTML 렌더링 (OG 태그 + 딥링크 스크립트) |
+| 메모리 | **mimalloc** | 고성능 글로벌 메모리 할당자 |
+| 모니터링 | **Sentry + tracing** | 구조화 로깅 및 5xx 서버 오류 자동 수집 |
 
 ## URL 생성 플로우
 
-```mermaid
-sequenceDiagram
-    participant C as 클라이언트
-    participant S as API 서버
-    participant R as Redis
-    participant DB as PostgreSQL
-
-    C->>S: POST /v1/urls (URL 데이터 + JWT)
-    S->>S: JWT 검증
-    S->>S: 입력값 유효성 검사
-    S->>S: xxHash 생성 (중복 체크용)
-    S->>DB: INSERT ... ON CONFLICT
-    
-    alt 새 URL
-        DB-->>S: 생성된 URL (id, random_key)
-        S->>S: Base62 인코딩 (short_key 생성)
-    else 기존 URL
-        DB-->>S: 기존 URL 반환
-    end
-    
-    S-->>C: { short_key: "Ab3D7Xy" }
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-creation-flow-dark.png">
+  <img alt="URL creation sequence — POST /v1/urls with JWT auth, validation, xxHash deduplication, and PostgreSQL ON CONFLICT" src="docs/diagrams/url-creation-flow.png" width="960">
+</picture>
 
 ### 단축키 생성 방식
 
-```mermaid
-flowchart LR
-    subgraph Input["입력"]
-        ID["DB ID: 12345"]
-        RK["랜덤키: AbXy"]
-    end
-
-    subgraph Process["처리"]
-        B62["Base62 인코딩"]
-        Split["랜덤키 분리"]
-    end
-
-    subgraph Output["출력"]
-        SK["단축키: Ab3D7Xy"]
-    end
-
-    ID --> B62
-    B62 --> |"3D7"| Merge
-    RK --> Split
-    Split --> |"접두사: Ab"| Merge
-    Split --> |"접미사: Xy"| Merge
-    Merge["결합"] --> SK
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/short-key-encoding-dark.png">
+  <img alt="Short key encoding pipeline — Base62 DB ID wrapped with 2-char random prefix and 2-char suffix" src="docs/diagrams/short-key-encoding.png" width="960">
+</picture>
 
 **특징:**
-- DB ID 기반으로 충돌 없음
-- 랜덤 접두사/접미사로 순차 추측 방지
-- 일관된 성능 (DB 크기 무관)
+- DB `BIGSERIAL` ID 기반으로 충돌 없음
+- 4자리 랜덤키를 접두사 2자 + 접미사 2자로 감싸 순차 추측(enumeration) 방지
+- `split_short_key`로 역산 후 DB의 `random_key`와 일치 여부를 검증해 위변조 차단
+- DB 크기와 무관하게 일정한 생성 성능
 
 ## URL 리디렉션 플로우
 
-```mermaid
-sequenceDiagram
-    participant C as 클라이언트
-    participant S as API 서버
-    participant R as Redis
-    participant DB as PostgreSQL
-    participant W as 웹훅
-
-    C->>S: GET /Ab3D7Xy
-    S->>S: short_key 파싱 (id + random_key 추출)
-    
-    S->>R: GET url:{id}
-    alt 캐시 히트
-        R-->>S: MessagePack 데이터
-    else 캐시 미스
-        R-->>S: null
-        S->>DB: SELECT * FROM urls WHERE id = ?
-        DB-->>S: URL 데이터
-        S->>R: SETEX url:{id} (TTL: 1시간)
-    end
-
-    S->>S: random_key 검증
-    S->>S: 플랫폼 감지 (iOS/Android/기타)
-    
-    par 비동기 웹훅 호출
-        S--)W: POST (short_key, user_agent, timestamp)
-    end
-
-    S-->>C: HTML (딥링크 + 폴백 URL)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-redirect-flow-dark.png">
+  <img alt="URL redirect sequence — Redis cache lookup by urls:{short_key}, PostgreSQL fallback, Askama HTML response, and async semaphore-bounded webhook" src="docs/diagrams/url-redirect-flow.png" width="960">
+</picture>
 
 ### 플랫폼별 리디렉션
 
-```mermaid
-flowchart TD
-    Request[요청 수신] --> Detect{User-Agent 분석}
-    
-    Detect -->|iOS| iOS{딥링크 설정?}
-    Detect -->|Android| Android{딥링크 설정?}
-    Detect -->|기타| Default[기본 폴백 URL]
-    
-    iOS -->|있음| iOSDeep[iOS 딥링크 시도]
-    iOS -->|없음| iOSFallback[iOS 폴백 URL]
-    iOSDeep -->|실패시| iOSFallback
-    
-    Android -->|있음| AndroidDeep[Android 딥링크 시도]
-    Android -->|없음| AndroidFallback[Android 폴백 URL]
-    AndroidDeep -->|실패시| AndroidFallback
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/platform-redirect-dark.png">
+  <img alt="Platform-specific redirect flowchart — User-Agent branching for iOS/Android deep links with 2000ms fallback timer and default web fallback" src="docs/diagrams/platform-redirect.png" width="960">
+</picture>
 
-    iOSFallback --> Response[리디렉션]
-    AndroidFallback --> Response
-    Default --> Response
-```
+- OG / Twitter Card / Schema.org 메타 태그가 HTML에 먼저 렌더링되어 SNS 크롤러가 미리보기를 정상 수집합니다.
+- 모바일 브라우저에서 딥링크가 설정된 경우 앱 실행을 시도하고, 2초(`2000ms`) 내 전환되지 않으면 플랫폼 폴백 URL(미설정 시 `default_fallback_url`)로 이동합니다.
 
 ## 캐싱 전략
 
-```mermaid
-flowchart LR
-    subgraph Request["요청"]
-        R1[URL 조회]
-    end
-
-    subgraph Cache["Redis 캐시"]
-        Check{캐시 확인}
-        Hit[캐시 히트]
-        Miss[캐시 미스]
-        Update[캐시 갱신]
-    end
-
-    subgraph DB["PostgreSQL"]
-        Query[DB 조회]
-    end
-
-    subgraph Serialize["직렬화"]
-        MP[MessagePack]
-    end
-
-    R1 --> Check
-    Check -->|존재| Hit
-    Check -->|없음| Miss
-    Miss --> Query
-    Query --> MP
-    MP --> Update
-    Update --> Hit
-    Hit --> Response[응답]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/caching-strategy-dark.png">
+  <img alt="Cache-aside strategy — Redis MessagePack lookup, PostgreSQL fallback on miss, and 3600s SETEX write-back" src="docs/diagrams/caching-strategy.png" width="960">
+</picture>
 
 **MessagePack 사용 이유:**
-- JSON 대비 30-50% 작은 크기
-- 빠른 직렬화/역직렬화
-- 바이너리 포맷으로 Redis 저장 효율적
+- JSON 대비 30–50% 작은 페이로드 크기 (`UrlCacheData`는 타임스탬프 필드 제외)
+- 빠른 직렬화/역직렬화 (`rmp-serde`)
+- 캐시 쓰기 실패 시에도 리디렉션 응답을 차단하지 않고 정상 처리
 
 ## 시작하기
 
 ### 사전 준비
 
-- Rust 1.75+
+- Rust (stable, `rust-toolchain.toml` 기준)
 - PostgreSQL
 - Redis
 
@@ -237,17 +110,32 @@ docker run -p 3000:3000 --env-file .env url-shortener
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
-| `SERVER_PORT` | 3000 | 서버 포트 |
-| `DB_HOST` | localhost | PostgreSQL 호스트 |
-| `REDIS_HOST` | localhost | Redis 호스트 |
-| `JWT_SECRET` | - | JWT 시크릿 (프로덕션 필수) |
-| `CACHE_TTL_SECS` | 3600 | 캐시 TTL (초) |
-| `RATE_LIMIT_PER_SECOND` | 10 | 초당 요청 제한 |
-| `WEBHOOK_MAX_CONCURRENT` | 100 | 최대 동시 웹훅 수 |
+| `SERVER_PORT` | `3000` | 서버 포트 |
+| `RUST_ENV` | `development` | 실행 환경 (`production` 시 `JWT_SECRET`·Secure 쿠키 강제) |
+| `DB_HOST` | `localhost` | PostgreSQL 호스트 |
+| `REDIS_HOST` | `localhost` | Redis 호스트 |
+| `REDIS_MAX_CONNECTIONS` | `20` | Redis 커넥션 풀 최대 크기 |
+| `JWT_SECRET` | - | JWT 시크릿 (프로덕션 필수, 최소 32자) |
+| `CACHE_TTL_SECS` | `3600` | Redis 캐시 TTL (초) |
+| `RATE_LIMIT_PER_SECOND` | `10` | 초당 요청 제한 |
+| `RATE_LIMIT_BURST_SIZE` | `50` | 레이트 리밋 버스트 허용량 |
+| `WEBHOOK_TIMEOUT_SECS` | `10` | 웹훅 HTTP 타임아웃 (초) |
+| `WEBHOOK_MAX_CONCURRENT` | `100` | 세마포어 기반 최대 동시 웹훅 수 |
+| `RUN_MIGRATIONS` | `true` | 서버 시작 시 SQLx 마이그레이션 자동 실행 |
 
 ## API
 
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|:----:|------|
+| `GET` | `/` | - | 메인 페이지 렌더링 및 게스트 JWT 쿠키(`token`) 발급 |
+| `POST` | `/v1/urls` | JWT | 단축 URL 생성 (중복 시 기존 `short_key` 반환) |
+| `GET` | `/{short_key}` | - | OG 태그 및 플랫폼별 딥링크 리디렉션 HTML 반환 |
+| `GET` | `/health` | - | Liveness 프로브 (`{ status, version }`) |
+| `GET` | `/ready` | - | Readiness 프로브 (PostgreSQL·Redis 연결 확인) |
+
 ### `POST /v1/urls` - URL 생성
+
+`Authorization: Bearer <token>` 헤더 또는 `token` 쿠키가 필요합니다.
 
 **요청:**
 ```json
@@ -274,19 +162,28 @@ docker run -p 3000:3000 --env-file .env url-shortener
 
 ### `GET /{short_key}` - 리디렉션
 
-단축 URL을 원본 URL로 리디렉션합니다.
+단축 URL을 원본 URL로 리디렉션하는 HTML 페이지를 반환하고, `webhookUrl`이 설정된 경우 `{ short_key, user_agent }` 페이로드를 비동기로 전송합니다.
 
 ## 프로젝트 구조
 
 ```
-src/
-├── main.rs           # 진입점
-├── error.rs          # 에러 처리
-├── api/              # HTTP 핸들러, 라우트, 미들웨어
-├── config/           # 환경 설정, DB/Redis 연결
-├── models/           # 데이터 모델, 리포지토리
-└── utils/            # JWT, Base62, 랜덤 문자열
+├── src/
+│   ├── main.rs           # 진입점, 미들웨어 스택, graceful shutdown
+│   ├── lib.rs            # 라이브러리 크레이트
+│   ├── error.rs          # 중앙 에러 처리 (AppError, AppResult)
+│   ├── api/              # HTTP 핸들러, 라우트, 스키마, JWT 미들웨어
+│   ├── config/           # 환경 설정, PostgreSQL/Redis 풀 초기화
+│   ├── models/           # Url, UrlCacheData, UrlRepository, 웹훅 전송
+│   └── utils/            # JWT, Base62 단축키, 랜덤 문자열
+├── migrations/           # SQLx 마이그레이션 SQL
+├── views/                # Askama HTML 템플릿 (index.html, redirect.html)
+├── tests/                # 통합 테스트 (DB 없이 실행 가능)
+└── docs/
+    ├── screenshot.png    # 데모 화면 캡처
+    └── diagrams/         # 에디토리얼 아키텍처·플로우 다이어그램 (PNG + HTML/SVG 원본)
 ```
+
+다이어그램 원본 목록은 [docs/diagrams/README.md](docs/diagrams/README.md)에서 확인할 수 있습니다.
 
 ## 라이선스
 

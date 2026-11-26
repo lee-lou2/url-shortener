@@ -44,42 +44,10 @@
 
 ## Architecture
 
-```
-                    ┌─────────────────┐
-                    │     Client      │
-                    │ (Browser/Mobile)│
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │     Router      │
-                    │ (Axum Routes)   │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  Rate Limiter   │
-                    │(tower_governor) │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  JWT Middleware │
-                    │  (Auth Check)   │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │    Handlers     │
-                    │ (Business Logic)│
-                    └───┬─────────┬───┘
-                        │         │
-            ┌───────────▼──┐  ┌───▼───────────┐
-            │    Redis     │  │  PostgreSQL   │
-            │   (Cache)    │  │  (Database)   │
-            └──────────────┘  └───────────────┘
-                        │
-               ┌────────▼────────┐
-               │    Webhooks     │
-               │ (Async/Spawned) │
-               └─────────────────┘
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
+  <img alt="System architecture — Clients, Tower middleware, JWT auth, Axum handlers, Redis cache, PostgreSQL, Webhook, and Sentry" src="docs/diagrams/architecture.png" width="960">
+</picture>
 
 ### Layered Architecture
 
@@ -124,6 +92,7 @@ tests/
 
 migrations/                 # SQLx migration files
 views/                      # Askama HTML templates
+docs/diagrams/              # Editorial diagrams (PNG + HTML/SVG sources)
 ```
 
 ---
@@ -450,52 +419,62 @@ impl UrlRepository {
 
 ### Cache Pattern
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/caching-strategy-dark.png">
+  <img alt="Cache-aside strategy — Redis MessagePack lookup, PostgreSQL fallback on miss, and 3600s SETEX write-back" src="docs/diagrams/caching-strategy.png" width="960">
+</picture>
+
 ```rust
-// 1. Try cache first
-let cache_key = format!("url:{id}");
+// 1. Try cache first (`urls:{short_key}`)
+let cache_key = format!("urls:{short_key}");
 if let Ok(cached) = redis_conn.get::<_, Vec<u8>>(&cache_key).await {
     if let Ok(data) = rmp_serde::from_slice::<UrlCacheData>(&cached) {
         return Ok(Some(data));
     }
 }
 
-// 2. Fallback to database
-let url = UrlRepository::find_by_id(pool, id).await?;
+// 2. Fallback to database (`split_short_key` + `random_key` verification)
+let url = UrlRepository::find_by_id_for_cache(pool, id).await?;
 
 // 3. Update cache
 if let Some(ref url) = url {
     if let Ok(serialized) = rmp_serde::to_vec(url) {
-        let _: Result<(), _> = redis_conn.setex(&cache_key, ttl, serialized).await;
+        let _: Result<(), _> = redis_conn.set_ex(&cache_key, serialized, ttl).await;
     }
 }
 ```
 
 ### Short Key Encoding
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/short-key-encoding-dark.png">
+  <img alt="Short key encoding pipeline — Base62 DB ID wrapped with 2-char random prefix and 2-char suffix" src="docs/diagrams/short-key-encoding.png" width="960">
+</picture>
+
 ```rust
 // Structure: [prefix(2)][base62_id][suffix(2)]
 // Example: "Ab" + "3D7" + "Xy" = "Ab3D7Xy"
 
 // Merge: Combine random_key with DB ID
-let short_key = merge_short_key(id, &random_key)?;
+let short_key = merge_short_key(&random_key, id);
 
 // Split: Extract ID and random_key from short_key
-let (extracted_id, extracted_random_key) = split_short_key(&short_key)?;
+let (extracted_id, extracted_random_key) = split_short_key(&short_key);
 ```
 
 ### Webhook Pattern (Fire-and-Forget)
 
 ```rust
 // Non-blocking webhook with semaphore concurrency control
-pub fn spawn_webhook_task(webhook_url: &str, short_key: &str, user_agent: &str) {
-    let permit = match WEBHOOK_SEMAPHORE.clone().try_acquire_owned() {
-        Ok(p) => p,
-        Err(_) => return,  // Skip if at capacity
-    };
+pub fn spawn_webhook_task(self, short_key: Cow<'static, str>, user_agent: Cow<'static, str>) {
+    let semaphore = WEBHOOK_SEMAPHORE.clone();
 
     tokio::spawn(async move {
-        let _permit = permit;  // Hold until complete
-        send_webhook_internal(&url, &key, &ua).await;
+        let Ok(permit) = semaphore.try_acquire() else {
+            return; // Skip if queue is full
+        };
+        let _ = send_webhook_internal(self.webhook_url.as_ref(), &short_key, &user_agent).await;
+        drop(permit);
     });
 }
 ```
@@ -695,12 +674,13 @@ sqlx migrate run
 | `REDIS_HOST` | localhost | No | Redis host |
 | `REDIS_PORT` | 6379 | No | Redis port |
 | `REDIS_PASSWORD` | - | No | Redis password |
-| `REDIS_MAX_CONNECTIONS` | 50 | No | Max Redis pool connections |
+| `REDIS_MAX_CONNECTIONS` | 20 | No | Max Redis pool connections |
 | `CACHE_TTL_SECS` | 3600 | No | Cache TTL in seconds |
 | `JWT_SECRET` | - | Yes** | JWT signing secret |
 | `JWT_EXPIRATION_HOURS` | 24 | No | Token expiration hours |
 | `RATE_LIMIT_PER_SECOND` | 10 | No | Requests per second limit |
-| `RATE_LIMIT_BURST_SIZE` | 30 | No | Burst size for rate limit |
+| `RATE_LIMIT_BURST_SIZE` | 50 | No | Burst size for rate limit |
+| `WEBHOOK_TIMEOUT_SECS` | 10 | No | Webhook request timeout (seconds) |
 | `WEBHOOK_MAX_CONCURRENT` | 100 | No | Max concurrent webhooks |
 | `RUN_MIGRATIONS` | true | No | Auto-run migrations on startup |
 | `SENTRY_DSN` | - | No | Sentry error tracking DSN |
