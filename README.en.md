@@ -20,7 +20,6 @@ Open Graph previews and click webhooks. Plain links are redirected with a single
 
 ## Architecture
 
-<!-- docs/diagrams PNGs are regenerated after the v2 redesign lands -->
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
   <img alt="System architecture" src="docs/diagrams/architecture.png" width="960">

@@ -66,7 +66,7 @@
     <div class="diagram-container">
       <svg viewBox="0 0 960 664" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="url-creation-flow-title url-creation-flow-desc">
         <title id="url-creation-flow-title">URL creation flow</title>
-        <desc id="url-creation-flow-desc">Sequence diagram showing POST /v1/urls authenticating via JWT, validating and computing an xxh3_128 hash, and running a race-safe INSERT ON CONFLICT to return either a newly created or existing Base62 short key.</desc>
+        <desc id="url-creation-flow-desc">Sequence diagram showing POST /v1/urls passing JWT auth and write rate limiting, normalizing and computing a 9-field SHA-256 hash, running SELECT before INSERT ON CONFLICT to avoid sequence burn on duplicates, warming L1 cache, and returning 201 or 200.</desc>
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
@@ -80,7 +80,7 @@
         </defs>
 
         <rect width="100%" height="100%" fill="#f5f5f5"/>
-        <!-- Lifelines: Client 136 · JWT Auth 368 · Axum API 600 · PostgreSQL 832 -->
+        <!-- Lifelines: Client 136 · Gate 368 · Axum API 600 · PostgreSQL 832 -->
         <line x1="136" y1="96" x2="136" y2="580" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
         <line x1="368" y1="96" x2="368" y2="580" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
         <line x1="600" y1="96" x2="600" y2="580" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
@@ -97,43 +97,43 @@
         <rect x="212" y="112" width="84" height="12" rx="2" fill="#f5f5f5"/>
         <text x="254" y="121" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">POST /V1/URLS</text>
         <line x1="372" y1="176" x2="596" y2="176" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="452" y="156" width="68" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="486" y="165" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">JWT CLAIMS</text>
+        <rect x="440" y="156" width="88" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="484" y="165" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">JWT + LIMIT OK</text>
         <path d="M 604,212 H 644 Q 652,212 652,220 V 236 Q 652,244 644,244 H 604" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="664" y="222" width="96" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="712" y="231" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">VALIDATE + XXH3</text>
+        <rect x="664" y="222" width="88" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="708" y="231" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NORM + SHA-256</text>
         <line x1="604" y1="280" x2="828" y2="280" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="668" y="260" width="96" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="716" y="269" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">INSERT CONFLICT</text>
+        <rect x="672" y="260" width="88" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="716" y="269" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">SELECT BY HASH</text>
 
         <!-- ALT Combined Fragment -->
         <rect x="84" y="308" width="792" height="260" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
         <rect x="84" y="308" width="40" height="16" rx="2" fill="#f5f5f5" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
         <text x="104" y="320" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">ALT</text>
 
-        <!-- Region 1: New URL inserted -->
-        <text x="152" y="340" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[new url · row inserted]</text>
+        <!-- Region 1: Existing link (0 sequence burn) -->
+        <text x="152" y="340" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[existing active hash · 0 seq burn]</text>
         <line x1="828" y1="368" x2="604" y2="368" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
         <rect x="676" y="348" width="84" height="12" rx="2" fill="#f5f5f5"/>
         <text x="718" y="357" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">ID + RAND_KEY</text>
-        <line x1="596" y1="408" x2="144" y2="408" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
-        <rect x="444" y="388" width="84" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="486" y="397" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">200 · CREATED</text>
+        <line x1="596" y1="408" x2="144" y2="408" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+        <rect x="428" y="388" width="116" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="486" y="397" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">200 · CREATED=FALSE</text>
 
         <!-- ALT divider -->
         <line x1="92" y1="432" x2="868" y2="432" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
 
-        <!-- Region 2: Duplicate hash -->
-        <text x="152" y="452" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[else · duplicate hash]</text>
+        <!-- Region 2: New link inserted + L1 warm -->
+        <text x="152" y="452" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[else · insert on conflict + warm L1]</text>
         <line x1="604" y1="480" x2="828" y2="480" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="672" y="460" width="88" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="716" y="469" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">SELECT BY HASH</text>
+        <rect x="668" y="460" width="96" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="716" y="469" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">INSERT CONFLICT</text>
         <line x1="828" y1="516" x2="604" y2="516" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
         <rect x="676" y="496" width="80" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="716" y="505" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">EXISTING ROW</text>
-        <line x1="596" y1="552" x2="144" y2="552" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
-        <rect x="440" y="532" width="88" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="484" y="541" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">200 · EXISTING</text>
+        <text x="716" y="505" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NEW ID + KEY</text>
+        <line x1="596" y1="552" x2="144" y2="552" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <rect x="428" y="532" width="112" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="484" y="541" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">201 · CREATED=TRUE</text>
 
         <!-- Actor boxes (drawn after arrows) -->
         <rect x="64" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
@@ -145,21 +145,21 @@
         <rect x="296" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
         <rect x="296" y="40" width="144" height="56" rx="6" fill="rgba(191,69,32,0.05)" stroke="rgba(191,69,32,0.50)" stroke-width="1" stroke-dasharray="4,4"/>
         <rect x="304" y="46" width="32" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.50)" stroke-width="0.8"/>
-        <text x="320" y="55" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">AUTH</text>
-        <text x="368" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">JWT Auth</text>
-        <text x="368" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Bearer · cookie</text>
+        <text x="320" y="55" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text>
+        <text x="368" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Auth + Limit</text>
+        <text x="368" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">JWT · CF-IP</text>
         <rect x="528" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
         <rect x="528" y="40" width="144" height="56" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
         <rect x="536" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.50)" stroke-width="0.8"/>
         <text x="550" y="55" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
         <text x="600" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Axum Handler</text>
-        <text x="600" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">merge_short_key</text>
+        <text x="600" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">9-field SHA-256</text>
         <rect x="760" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
         <rect x="760" y="40" width="144" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
         <rect x="768" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.45)" stroke-width="0.8"/>
         <text x="782" y="55" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
         <text x="832" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">PostgreSQL</text>
-        <text x="832" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">urls · unique hash</text>
+        <text x="832" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">active hash idx</text>
 
         <!-- Legend strip -->
         <line x1="40" y1="600" x2="920" y2="600" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
@@ -176,7 +176,7 @@
         <line x1="604" y1="636" x2="632" y2="636" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
         <text x="640" y="640" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Return</text>
         <line x1="720" y1="636" x2="748" y2="636" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
-        <text x="756" y="640" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Headline success</text>
+        <text x="756" y="640" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">New link (201)</text>
       </svg>
     </div>
   </div>

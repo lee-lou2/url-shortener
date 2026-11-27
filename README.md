@@ -20,7 +20,6 @@ Rust(Axum + PostgreSQL)로 만든 빠른 URL 단축 서비스입니다. 앱 딥�
 
 ## 아키텍처
 
-<!-- docs/diagrams PNG는 v2 리디자인이 합쳐진 뒤 다시 생성합니다 -->
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
   <img alt="시스템 아키텍처" src="docs/diagrams/architecture.png" width="960">
