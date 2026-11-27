@@ -4,10 +4,7 @@
 
 🚀 **데모:** [https://u.lou2.kr](https://u.lou2.kr)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
-  <img alt="URL 단축기 데모 화면" src="docs/screenshot.png" width="760">
-</picture>
+![URL 단축기 데모 화면](docs/screenshot.png)
 
 Rust(Axum + PostgreSQL)로 만든 빠른 URL 단축 서비스입니다. 앱 딥링크, 플랫폼별 폴백, Open Graph 미리보기, 클릭 웹훅을 지원하며
 일반 링크는 `302` 한 번으로 리디렉션합니다.

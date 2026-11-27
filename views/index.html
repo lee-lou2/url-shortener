@@ -3,115 +3,367 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <meta name="description" content="Create short links with app deep links, social previews and click webhooks.">
-<title>URL Shortener</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E">
+<title>Link Generator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23818cf8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E">
 <style>
-:root{color-scheme:light dark;--bg:#f5f6f8;--card:#fff;--fg:#15171c;--mut:#5a606b;--line:#d9dde3;--acc:#4f46e5;--on:#fff;--ok:#0b6b34;--okbg:#e3f5ea;--wfg:#7a4a00;--wbg:#fdf0d2;--bad:#b42318}
-@media (prefers-color-scheme:dark){:root{--bg:#0d0e12;--card:#16181f;--fg:#eceef2;--mut:#a0a7b3;--line:#2c303b;--acc:#8f91ff;--on:#0d0e12;--ok:#5be08b;--okbg:#10301d;--wfg:#ffd479;--wbg:#3a2b08;--bad:#ff8a80}}
-*{box-sizing:border-box}
+*,*::before,*::after{box-sizing:border-box;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 [hidden]{display:none!important}
-body{margin:0;min-height:100dvh;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR",sans-serif}
-main{max-width:520px;margin:0 auto;padding:clamp(24px,7vw,64px) 16px 48px}
-h1{margin:0 0 4px;font-size:1.75rem;letter-spacing:-.02em}
-header p{margin:0 0 24px;color:var(--mut)}
-.card{margin-bottom:16px;padding:20px;background:var(--card);border:1px solid var(--line);border-radius:14px}
-label{display:block;margin:16px 0 6px;font-size:.875rem;font-weight:600}
-.f:first-child label{margin-top:0}
-input,textarea{display:block;width:100%;padding:10px 12px;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px}
-textarea{resize:vertical}
-::placeholder{color:var(--mut)}
-input:read-only{cursor:text}
-details{margin-top:16px;border-top:1px solid var(--line)}
-summary{padding:12px 0;font-weight:600;cursor:pointer}
-.hint{margin:0 0 4px;font-size:.8125rem;color:var(--mut)}
-code{font-size:.8125rem}
-button{font:inherit;cursor:pointer}
-.btn{width:100%;margin-top:20px;padding:12px;font-weight:600;color:var(--on);background:var(--acc);border:0;border-radius:10px}
-.btn:disabled{opacity:.6;cursor:progress}
-a,.link{color:var(--acc)}
-.link{padding:0;background:none;border:0;text-decoration:underline}
-:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-#msg{min-height:1.5em;margin:0 0 16px;font-size:.9375rem}
-#msg.err{color:var(--bad);font-weight:600}
-.badge{display:inline-block;margin-bottom:12px;padding:2px 12px;font-size:.8125rem;font-weight:600;border-radius:999px}
-.new{color:var(--ok);background:var(--okbg)}
-.old{color:var(--wfg);background:var(--wbg)}
-.copy{display:flex;gap:8px}
-.copy input{flex:1;min-width:0}
-.copy button{padding:0 16px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px}
-.row{display:flex;justify-content:space-between;margin:14px 0 0}
-.og{display:flex;margin-top:16px;overflow:hidden;background:var(--bg);border:1px solid var(--line);border-radius:10px}
-.og img{width:112px;object-fit:cover}
-.og div{min-width:0;padding:10px 12px}
-.og small{display:block;font-size:.75rem;color:var(--mut)}
-.og strong,.og span{display:block;overflow:hidden;text-overflow:ellipsis}
-.og strong{white-space:nowrap}
-.og span{max-height:3em;font-size:.875rem;color:var(--mut)}
-@media (prefers-reduced-motion:no-preference){input,textarea,button{transition:border-color .15s,opacity .15s}}
+:root{
+  color-scheme:dark;
+  --accent:#6366f1;
+  --accent-light:#818cf8;
+  --violet:#8b5cf6;
+  --fg:#ffffff;
+  --muted:rgba(255,255,255,.52);
+  --subtle:rgba(255,255,255,.32);
+  --line:rgba(255,255,255,.09);
+  --line-hover:rgba(255,255,255,.15);
+  --ok:#4ade80;
+  --ok-bg:rgba(34,197,94,.16);
+  --warn:#fbbf24;
+  --warn-bg:rgba(245,158,11,.16);
+  --err:#f87171;
+  --err-bg:rgba(239,68,68,.16);
+}
+body{
+  margin:0;
+  min-height:100dvh;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  padding:48px 16px;
+  position:relative;
+  overflow-x:hidden;
+  color:var(--fg);
+  background:linear-gradient(135deg,#0c0c0f 0%,#1a1a2e 50%,#16161a 100%);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+}
+.orb{position:fixed;border-radius:50%;filter:blur(80px);opacity:.3;pointer-events:none;z-index:0}
+.orb-1{width:580px;height:580px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);top:-200px;right:-190px;animation:float 8s ease-in-out infinite}
+.orb-2{width:400px;height:400px;background:linear-gradient(135deg,#06b6d4 0%,#3b82f6 100%);bottom:-110px;left:-110px;animation:float 10s ease-in-out infinite reverse}
+.orb-3{width:300px;height:300px;background:linear-gradient(135deg,#f43f5e 0%,#ec4899 100%);top:50%;left:50%;transform:translate(-50%,-50%);opacity:.14;animation:glow 4s ease-in-out infinite alternate}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-18px)}}
+@keyframes glow{0%{opacity:.10}100%{opacity:.22}}
+@keyframes slideUp{0%{opacity:0;transform:translateY(16px)}100%{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+main{width:100%;max-width:460px;position:relative;z-index:10}
+header{text-align:center;margin-bottom:32px;animation:slideUp .45s ease-out both}
+.brand-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:56px;height:56px;margin-bottom:18px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(99,102,241,.22),rgba(168,85,247,.2));
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 8px 30px -10px rgba(99,102,241,.45);
+  color:var(--accent-light);
+}
+.brand-badge svg{width:28px;height:28px}
+h1{
+  margin:0 0 8px;
+  font-size:1.9rem;font-weight:700;letter-spacing:-.025em;line-height:1.2;
+  background:linear-gradient(90deg,#ffffff 0%,#ffffff 55%,rgba(255,255,255,.65) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+header p{margin:0;font-size:.875rem;font-weight:500;color:var(--muted)}
+.glass-card{
+  background:rgba(255,255,255,.035);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--line);
+  border-radius:24px;
+  padding:28px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.04) inset,
+    0 20px 50px -12px rgba(0,0,0,.55),
+    0 0 80px -20px rgba(99,102,241,.18);
+  transition:border-color .3s ease,box-shadow .3s ease;
+  animation:slideUp .5s ease-out .08s both;
+}
+.glass-card:hover{
+  border-color:rgba(255,255,255,.13);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.07) inset,
+    0 25px 60px -15px rgba(0,0,0,.62),
+    0 0 100px -20px rgba(99,102,241,.26);
+}
+.field{margin-bottom:20px}
+.field:last-child{margin-bottom:0}
+.field-label{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:.875rem;font-weight:600;color:rgba(255,255,255,.85)}
+.req{color:var(--accent-light)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+input,textarea{
+  display:block;width:100%;padding:13px 16px;
+  font:inherit;font-size:.9375rem;color:#fff;
+  background:rgba(255,255,255,.045);
+  border:1px solid var(--line);
+  border-radius:12px;
+  transition:background-color .2s ease,border-color .2s ease,box-shadow .2s ease;
+}
+textarea{resize:vertical;min-height:68px}
+input::placeholder,textarea::placeholder{color:rgba(255,255,255,.34)}
+input:hover,textarea:hover{background:rgba(255,255,255,.065);border-color:var(--line-hover)}
+input:focus,textarea:focus{
+  outline:none;
+  background:rgba(255,255,255,.08);
+  border-color:rgba(99,102,241,.55);
+  box-shadow:0 0 0 3px rgba(99,102,241,.18),0 0 20px -5px rgba(99,102,241,.35);
+}
+.toggle-wrap{position:relative;display:flex;align-items:center;justify-content:center;margin:22px 0}
+.divider{position:absolute;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.12) 50%,transparent 100%)}
+.toggle-btn{
+  position:relative;z-index:1;
+  padding:8px 18px;border-radius:999px;
+  background:#151621;border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.68);
+  font:inherit;font-size:.75rem;font-weight:600;letter-spacing:.03em;
+  cursor:pointer;transition:all .2s ease;
+}
+.toggle-btn:hover{background:#1c1e2e;border-color:rgba(255,255,255,.22);color:#fff}
+.advanced{display:flex;flex-direction:column;gap:14px;margin-bottom:22px;animation:slideUp .28s ease-out both}
+.section-card{
+  background:rgba(255,255,255,.025);
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:16px;padding:16px;
+  transition:background-color .2s ease,border-color .2s ease;
+}
+.section-card:hover{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.11)}
+.section-label{
+  display:flex;align-items:center;gap:8px;margin-bottom:12px;
+  font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:rgba(255,255,255,.55);
+}
+.section-label svg{width:15px;height:15px;opacity:.75;flex-shrink:0}
+.stack{display:flex;flex-direction:column;gap:10px}
+.section-card input,.section-card textarea{padding:11px 14px;font-size:.875rem}
+.hint{margin:8px 0 0;font-size:.75rem;color:var(--subtle);line-height:1.45}
+.hint code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:rgba(255,255,255,.62)}
+.og-preview{
+  display:flex;margin-top:12px;overflow:hidden;border-radius:12px;
+  background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.09);
+}
+.og-preview img{width:104px;min-height:80px;object-fit:cover;flex-shrink:0}
+.og-meta{min-width:0;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.og-meta small{font-size:.7rem;color:var(--subtle);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.og-meta strong{font-size:.85rem;color:rgba(255,255,255,.92);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.og-meta span{font-size:.78rem;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.btn-primary{
+  width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:15px 24px;border:0;border-radius:14px;cursor:pointer;
+  font:inherit;font-size:.9375rem;font-weight:600;color:#fff;
+  background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);
+  box-shadow:0 10px 30px -10px rgba(99,102,241,.55);
+  transition:transform .2s ease,box-shadow .2s ease,filter .2s ease,opacity .2s ease;
+}
+.btn-primary:hover:not(:disabled){
+  transform:translateY(-2px);filter:brightness(1.08);
+  box-shadow:0 14px 40px -10px rgba(99,102,241,.68),0 0 22px -6px rgba(139,92,246,.5);
+}
+.btn-primary:active:not(:disabled){transform:translateY(0)}
+.btn-primary:disabled{opacity:.65;cursor:progress}
+.spinner{width:18px;height:18px;animation:spin .8s linear infinite}
+.status-msg{margin-top:14px;padding:10px 14px;border-radius:12px;font-size:.84rem;font-weight:500;background:var(--err-bg);border:1px solid rgba(239,68,68,.28);color:#fecaca}
+footer{margin-top:26px;text-align:center;font-size:.75rem;font-weight:500;color:rgba(255,255,255,.28);animation:slideUp .55s ease-out .16s both}
+.modal-overlay{
+  position:fixed;inset:0;z-index:100;padding:20px;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(5,6,12,.74);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+}
+.modal-card{
+  width:100%;max-width:400px;padding:28px;border-radius:24px;
+  background:linear-gradient(180deg,rgba(28,30,44,.98) 0%,rgba(18,19,28,.98) 100%);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 0 0 1px rgba(255,255,255,.05) inset,0 25px 80px -20px rgba(0,0,0,.85);
+  animation:slideUp .25s ease-out both;
+}
+.modal-icon{
+  width:56px;height:56px;margin:0 auto 18px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+}
+.modal-icon.ok{background:var(--ok-bg);color:var(--ok)}
+.modal-icon.reused{background:var(--warn-bg);color:var(--warn)}
+.modal-icon svg{width:28px;height:28px}
+.modal-head{text-align:center;margin-bottom:20px}
+.badge{display:inline-block;margin-bottom:10px;padding:3px 12px;border-radius:999px;font-size:.75rem;font-weight:600}
+.badge.new{color:var(--ok);background:var(--ok-bg)}
+.badge.old{color:var(--warn);background:var(--warn-bg)}
+.modal-head h2{margin:0 0 4px;font-size:1.25rem;font-weight:700;color:#fff}
+.modal-head p{margin:0;font-size:.84rem;color:var(--muted)}
+.copy-label{display:block;margin-bottom:8px;font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--subtle)}
+.copy-group{
+  display:flex;overflow:hidden;border-radius:12px;
+  background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);
+}
+.copy-group input{flex:1;min-width:0;border:0;background:transparent;border-radius:0;padding:13px 14px;font-size:.875rem;font-weight:500}
+.copy-group input:focus{box-shadow:none;background:transparent}
+.copy-btn{
+  padding:0 18px;border:0;border-left:1px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.06);color:rgba(255,255,255,.88);
+  font:inherit;font-size:.8125rem;font-weight:600;cursor:pointer;transition:background-color .15s ease,color .15s ease;
+}
+.copy-btn:hover{background:rgba(255,255,255,.14);color:#fff}
+.modal-actions{display:flex;gap:10px;margin-top:18px}
+.btn-sec{
+  flex:1;display:inline-flex;align-items:center;justify-content:center;
+  padding:12px 14px;border-radius:12px;text-decoration:none;cursor:pointer;
+  font:inherit;font-size:.85rem;font-weight:600;color:#fff;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
+  transition:background-color .15s ease,border-color .15s ease;
+}
+.btn-sec:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.2)}
+.btn-sec.accent{background:rgba(99,102,241,.22);border-color:rgba(129,140,248,.38);color:#e0e7ff}
+.btn-sec.accent:hover{background:rgba(99,102,241,.34)}
+:focus-visible{outline:2px solid var(--accent-light);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .orb,.glass-card,header,footer,.advanced,.modal-card,.spinner{animation:none!important}
+  .btn-primary:hover:not(:disabled){transform:none}
+}
+@media (max-width:480px){.glass-card{padding:22px 18px}}
 </style>
 </head>
 <body>
+<div class="orb orb-1" aria-hidden="true"></div>
+<div class="orb orb-2" aria-hidden="true"></div>
+<div class="orb orb-3" aria-hidden="true"></div>
+
 <main>
   <header>
-    <h1>URL Shortener</h1>
-    <p>Short links with app deep links, social previews and click webhooks.</p>
-  </header>
-  <form id="f" class="card" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <div class="f">
-      <label for="defaultFallbackUrl">Destination URL <span aria-hidden="true">*</span></label>
-      <input id="defaultFallbackUrl" name="defaultFallbackUrl" type="url" required placeholder="https://example.com/page">
+    <div class="brand-badge" aria-hidden="true">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+      </svg>
     </div>
-    <details>
-      <summary>App deep links</summary>
-      <p class="hint" id="h-deep">Opened on iOS or Android. Without the app, visitors go to the store URL, or to the destination.</p>
-      <div class="f"><label for="iosDeepLink">iOS deep link</label>
-        <input id="iosDeepLink" name="iosDeepLink" type="text" inputmode="url" placeholder="myapp://path" aria-describedby="h-deep"></div>
-      <div class="f"><label for="iosFallbackUrl">iOS fallback (App Store URL)</label>
-        <input id="iosFallbackUrl" name="iosFallbackUrl" type="url" placeholder="https://apps.apple.com/app/..." aria-describedby="h-deep"></div>
-      <div class="f"><label for="androidDeepLink">Android deep link</label>
-        <input id="androidDeepLink" name="androidDeepLink" type="text" inputmode="url" placeholder="myapp://path" aria-describedby="h-deep"></div>
-      <div class="f"><label for="androidFallbackUrl">Android fallback (Play Store URL)</label>
-        <input id="androidFallbackUrl" name="androidFallbackUrl" type="url" placeholder="https://play.google.com/store/apps/..." aria-describedby="h-deep"></div>
-    </details>
-    <details>
-      <summary>Social preview</summary>
-      <div class="f"><label for="ogTitle">Title</label>
-        <input id="ogTitle" name="ogTitle" type="text" maxlength="200"></div>
-      <div class="f"><label for="ogDescription">Description</label>
-        <textarea id="ogDescription" name="ogDescription" rows="2" maxlength="500" spellcheck="true"></textarea></div>
-      <div class="f"><label for="ogImageUrl">Image URL</label>
-        <input id="ogImageUrl" name="ogImageUrl" type="url" placeholder="https://example.com/cover.png"></div>
-      <div class="og" id="og" aria-hidden="true">
-        <div><small id="ogHost"></small><strong id="ogT">Title</strong><span id="ogD"></span></div></div>
-    </details>
-    <details>
-      <summary>Click webhook</summary>
-      <div class="f"><label for="webhookUrl">Webhook URL</label>
-        <input id="webhookUrl" name="webhookUrl" type="url" placeholder="https://your-server.com/hook" aria-describedby="h-hook"></div>
-      <p class="hint" id="h-hook">On every visit we POST <code>{"short_key","user_agent"}</code> as JSON. Public http(s) hosts only.</p>
-    </details>
-    <button id="go" class="btn" type="submit">Shorten</button>
-  </form>
-  <div id="msg" aria-live="polite"></div>
-  <section id="res" class="card" aria-label="Result" hidden>
-    <span id="badge" class="badge"></span>
-    <div class="copy"><input id="short" type="text" aria-label="Short URL" readonly><button id="copy" type="button">Copy</button></div>
-    <p class="row"><a id="open" href="/" target="_blank" rel="noopener noreferrer">Open link</a><button id="again" class="link" type="button">Create another</button></p>
+    <h1>Link Generator</h1>
+    <p>Create intelligent deep links for your applications</p>
+  </header>
+
+  <section class="glass-card" aria-label="Create short link">
+    <form id="f" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="field">
+        <label class="field-label" for="defaultFallbackUrl">Destination URL <span class="req" aria-hidden="true">*</span></label>
+        <input id="defaultFallbackUrl" name="defaultFallbackUrl" type="url" required placeholder="https://example.com">
+      </div>
+
+      <div class="toggle-wrap">
+        <div class="divider" aria-hidden="true"></div>
+        <button id="toggleAdv" class="toggle-btn" type="button" aria-expanded="false" aria-controls="adv">Advanced Settings</button>
+      </div>
+
+      <div id="adv" class="advanced" hidden>
+        <div class="section-card">
+          <div class="section-label">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span>iOS Configuration</span>
+          </div>
+          <div class="stack">
+            <label class="sr-only" for="iosDeepLink">iOS deep link</label>
+            <input id="iosDeepLink" name="iosDeepLink" type="text" inputmode="url" placeholder="Custom Scheme (myapp://path)">
+            <label class="sr-only" for="iosFallbackUrl">iOS App Store fallback URL</label>
+            <input id="iosFallbackUrl" name="iosFallbackUrl" type="url" placeholder="App Store URL">
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-label">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            <span>Android Configuration</span>
+          </div>
+          <div class="stack">
+            <label class="sr-only" for="androidDeepLink">Android deep link</label>
+            <input id="androidDeepLink" name="androidDeepLink" type="text" inputmode="url" placeholder="Custom Scheme (myapp://path)">
+            <label class="sr-only" for="androidFallbackUrl">Android Play Store fallback URL</label>
+            <input id="androidFallbackUrl" name="androidFallbackUrl" type="url" placeholder="Play Store URL">
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-label">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <span>Social Preview</span>
+          </div>
+          <div class="stack">
+            <label class="sr-only" for="ogTitle">Open Graph title</label>
+            <input id="ogTitle" name="ogTitle" type="text" maxlength="200" placeholder="Title">
+            <label class="sr-only" for="ogDescription">Open Graph description</label>
+            <textarea id="ogDescription" name="ogDescription" rows="2" maxlength="500" spellcheck="true" placeholder="Description"></textarea>
+            <label class="sr-only" for="ogImageUrl">Open Graph image URL</label>
+            <input id="ogImageUrl" name="ogImageUrl" type="url" placeholder="Image URL (https://...)">
+          </div>
+          <div id="og" class="og-preview" aria-hidden="true" hidden>
+            <div class="og-meta"><small id="ogHost"></small><strong id="ogT"></strong><span id="ogD"></span></div>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-label">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+            <span>Click Webhook</span>
+          </div>
+          <label class="sr-only" for="webhookUrl">Webhook URL</label>
+          <input id="webhookUrl" name="webhookUrl" type="url" placeholder="https://your-server.com/webhook" aria-describedby="h-hook">
+          <p class="hint" id="h-hook">POST <code>{"short_key","user_agent"}</code> as JSON on each visit (public http/https hosts only).</p>
+        </div>
+      </div>
+
+      <button id="go" class="btn-primary" type="submit">
+        <span id="goText">Generate Link</span>
+        <svg id="spin" class="spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true" hidden>
+          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3.5" opacity=".25"/>
+          <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <div id="msg" class="status-msg" role="alert" aria-live="polite" hidden></div>
+    </form>
   </section>
+
+  <footer>Link Generator &middot; Fast &amp; Secure</footer>
 </main>
+
+<div id="modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mTitle" hidden>
+  <div class="modal-card">
+    <div id="mIcon" class="modal-icon ok" aria-hidden="true">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M5 13l4 4L19 7"/>
+      </svg>
+    </div>
+    <div class="modal-head">
+      <span id="badge" class="badge new">New short link created</span>
+      <h2 id="mTitle">Link ready</h2>
+      <p id="mSub">Your short link is ready to share.</p>
+    </div>
+    <label class="copy-label" for="short">Short URL</label>
+    <div class="copy-group">
+      <input id="short" type="text" readonly>
+      <button id="copy" class="copy-btn" type="button">Copy</button>
+    </div>
+    <div class="modal-actions">
+      <a id="open" class="btn-sec accent" href="/" target="_blank" rel="noopener noreferrer">Open link</a>
+      <button id="close" class="btn-sec" type="button">Create another</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
-  var f = $('f'), msg = $('msg'), res = $('res'), go = $('go'), copy = $('copy'), short = $('short'), og = $('og'), img = new Image();
+  var f = $('f'), adv = $('adv'), toggleAdv = $('toggleAdv'), go = $('go'), goText = $('goText'), spin = $('spin');
+  var msg = $('msg'), modal = $('modal'), short = $('short'), copy = $('copy'), open = $('open'), close = $('close');
+  var badge = $('badge'), mIcon = $('mIcon'), mTitle = $('mTitle'), mSub = $('mSub'), og = $('og'), img = new Image();
   var FIELDS = ['defaultFallbackUrl', 'iosDeepLink', 'iosFallbackUrl', 'androidDeepLink', 'androidFallbackUrl', 'ogTitle', 'ogDescription', 'ogImageUrl', 'webhookUrl'];
 
-  function say(text, bad) { msg.textContent = text; msg.className = bad ? 'err' : ''; }
+  function showErr(text) { msg.textContent = text; msg.hidden = !text; }
   function web(u) { try { var p = new URL(u).protocol; return p === 'https:' || p === 'http:'; } catch (e) { return false; } }
 
-  // "example.com" -> "https://example.com" (native type=url validation would reject it)
+  toggleAdv.addEventListener('click', function () {
+    var expanded = adv.hidden;
+    adv.hidden = !expanded;
+    toggleAdv.setAttribute('aria-expanded', String(expanded));
+    toggleAdv.textContent = expanded ? 'Hide Settings' : 'Advanced Settings';
+  });
+
+  // Auto-prepend https:// for bare hosts so native type=url validation accepts them.
   f.addEventListener('change', function (e) {
     var t = e.target, v = t.value.trim();
     if (t.type === 'url' && v && !/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) t.value = 'https://' + v;
@@ -132,7 +384,7 @@ a,.link{color:var(--acc)}
   }
   async function create(payload) {
     var r = await post(payload);
-    if (r.status === 401) { // guest cookie expired: refresh it once, then retry transparently
+    if (r.status === 401) {
       await fetch('/', { credentials: 'same-origin', cache: 'no-store' });
       r = await post(payload);
     }
@@ -141,29 +393,39 @@ a,.link{color:var(--acc)}
     return d;
   }
 
-  function show(url, created) {
-    short.value = url; $('open').href = url; copy.textContent = 'Copy';
-    $('badge').textContent = created ? 'New short link created' : 'Existing link reused';
-    $('badge').className = 'badge ' + (created ? 'new' : 'old');
-    res.hidden = false;
-    say(created ? 'Short link created.' : 'This link already existed, so it was reused.');
-    short.focus(); short.select();
+  function showModal(url, created) {
+    short.value = url;
+    open.href = url;
+    copy.textContent = 'Copy';
+    badge.textContent = created ? 'New short link created' : 'Existing link reused';
+    badge.className = 'badge ' + (created ? 'new' : 'old');
+    mIcon.className = 'modal-icon ' + (created ? 'ok' : 'reused');
+    mTitle.textContent = created ? 'Link ready' : 'Existing link found';
+    mSub.textContent = created ? 'Your short link is ready to share.' : 'An identical link already existed and was reused.';
+    modal.hidden = false;
+    short.focus();
+    short.select();
+  }
+  function closeModal(resetForm) {
+    modal.hidden = true;
+    if (resetForm) { f.reset(); preview(); showErr(''); }
+    $('defaultFallbackUrl').focus();
   }
 
   f.addEventListener('submit', async function (e) {
     e.preventDefault();
     var payload = {};
     FIELDS.forEach(function (k) { var v = f.elements[k].value.trim(); if (v) payload[k] = v; });
-    go.disabled = true; go.textContent = 'Shortening…'; res.hidden = true; say('');
+    go.disabled = true; goText.textContent = 'Generating…'; spin.hidden = false; showErr('');
     try {
       var d = await create(payload);
       if (!/^[A-Za-z0-9]{5,15}$/.test(d.short_key || '')) throw new Error('Unexpected server response.');
-      show(location.origin + '/' + d.short_key, typeof d.created === 'boolean' ? d.created : d.message !== 'URL already exists');
+      showModal(location.origin + '/' + d.short_key, typeof d.created === 'boolean' ? d.created : d.message !== 'URL already exists');
     } catch (err) {
       var timeout = err.name === 'TimeoutError' || err.name === 'AbortError';
-      say(timeout ? 'The request timed out. Try again.' : err instanceof TypeError ? 'Network error. Check your connection.' : err.message, true);
+      showErr(timeout ? 'The request timed out. Try again.' : err instanceof TypeError ? 'Network error. Check your connection.' : err.message);
     } finally {
-      go.disabled = false; go.textContent = 'Shorten';
+      go.disabled = false; goText.textContent = 'Generate Link'; spin.hidden = true;
     }
   });
 
@@ -173,28 +435,29 @@ a,.link{color:var(--acc)}
       short.focus(); short.select();
       try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
     }
-    copy.textContent = ok ? 'Copied ✓' : 'Press Ctrl/⌘+C';
-    say(ok ? 'Copied to clipboard.' : 'Copy failed. The link is selected: press Ctrl/⌘+C.', !ok);
+    copy.textContent = ok ? 'Copied ✓' : 'Ctrl/⌘+C';
     setTimeout(function () { copy.textContent = 'Copy'; }, 2000);
   });
 
-  // Live social preview: user text goes through textContent only; the image loads for http(s) URLs only.
+  close.addEventListener('click', function () { closeModal(true); });
+  modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !modal.hidden) closeModal(false); });
+
   function preview() {
-    var host = '', src = $('ogImageUrl').value.trim();
+    var t = $('ogTitle').value.trim(), desc = $('ogDescription').value.trim(), src = $('ogImageUrl').value.trim(), host = '';
     try { host = new URL($('defaultFallbackUrl').value).hostname; } catch (e) { host = ''; }
-    $('ogHost').textContent = host;
-    $('ogT').textContent = $('ogTitle').value.trim() || host || 'Title';
-    $('ogD').textContent = $('ogDescription').value.trim();
+    var hasAny = Boolean(t || desc || web(src));
+    og.hidden = !hasAny;
+    if (!hasAny) return;
+    $('ogHost').textContent = host || 'preview';
+    $('ogT').textContent = t || host || 'Title';
+    $('ogD').textContent = desc;
     if (web(src)) { if (img.getAttribute('src') !== src) { img.src = src; og.prepend(img); } } else { img.removeAttribute('src'); img.remove(); }
   }
   ['defaultFallbackUrl', 'ogTitle', 'ogDescription'].forEach(function (id) { $(id).addEventListener('input', preview); });
-  $('ogImageUrl').addEventListener('change', preview); // not per keystroke: avoids requests to half-typed hosts
+  $('ogImageUrl').addEventListener('change', preview);
   img.alt = ''; img.referrerPolicy = 'no-referrer';
   img.addEventListener('error', function () { img.remove(); });
-
-  $('again').addEventListener('click', function () {
-    f.reset(); preview(); res.hidden = true; say(''); $('defaultFallbackUrl').focus();
-  });
 })();
 </script>
 </body>
