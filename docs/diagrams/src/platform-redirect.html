@@ -66,7 +66,7 @@
     <div class="diagram-container">
       <svg viewBox="0 0 960 704" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="platform-redirect-title platform-redirect-desc">
         <title id="platform-redirect-title">Platform-specific redirect</title>
-        <desc id="platform-redirect-desc">Flowchart showing client-side User-Agent detection in views/redirect.html branching between default web fallback, iOS or Android deep link launch with a 2000ms timer, and platform fallback redirection.</desc>
+        <desc id="platform-redirect-desc">Flowchart showing client-side iOS, iPadOS, and Android detection in views/redirect.html branching between default web fallback, safe deep link launch with a 1500ms timer cancelled on visibilitychange/pagehide/blur, and location.replace platform fallback.</desc>
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
@@ -92,21 +92,21 @@
         <line x1="684" y1="516" x2="684" y2="572" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
 
         <!-- Arrow labels -->
-        <rect x="452" y="140" width="68" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="486" y="149" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NO · OTHER</text>
+        <rect x="444" y="140" width="80" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="484" y="149" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NO · DESKTOP</text>
         <rect x="292" y="218" width="80" height="12" rx="2" fill="#f5f5f5"/>
         <text x="332" y="227" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">YES · MOBILE</text>
         <rect x="508" y="268" width="24" height="12" rx="2" fill="#f5f5f5"/>
         <text x="520" y="277" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
         <rect x="292" y="344" width="28" height="12" rx="2" fill="#f5f5f5"/>
         <text x="306" y="353" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">YES</text>
-        <rect x="292" y="548" width="28" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="306" y="557" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">YES</text>
-        <rect x="452" y="472" width="68" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="486" y="481" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">TIMEOUT 2S</text>
+        <rect x="292" y="548" width="84" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="334" y="557" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">HIDDEN / BLUR</text>
+        <rect x="444" y="472" width="80" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="484" y="481" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">TIMEOUT 1.5S</text>
 
         <!-- Editorial callout -->
-        <text x="920" y="60" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">OG tags are served before JS runs for social crawlers</text>
+        <text x="920" y="60" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">Plain links use 302 · HTML runs only for OG or deep links</text>
         <path d="M 792,68 Q 740,84 684,136" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="1" stroke-dasharray="4,3"/>
         <circle cx="684" cy="136" r="2" fill="#2d3142"/>
 
@@ -114,34 +114,34 @@
         <rect x="180" y="36" width="200" height="48" rx="20" fill="#f5f5f5"/>
         <rect x="180" y="36" width="200" height="48" rx="20" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
         <text x="280" y="58" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">HTML Loaded</text>
-        <text x="280" y="73" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">views/redirect.html</text>
+        <text x="280" y="73" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">data-* · hash CSP</text>
 
-        <!-- Diamond 1: iOS or Android? -->
+        <!-- Diamond 1: iOS, iPadOS or Android? -->
         <polygon points="280,116 384,160 280,204 176,160" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-        <text x="280" y="157" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">iOS or Android</text>
-        <text x="280" y="172" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">User-Agent?</text>
+        <text x="280" y="157" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">iOS / iPadOS</text>
+        <text x="280" y="172" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">or Android?</text>
 
         <!-- End oval: Default Fallback -->
         <rect x="584" y="136" width="200" height="48" rx="20" fill="#f5f5f5"/>
         <rect x="584" y="136" width="200" height="48" rx="20" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
         <text x="684" y="158" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Default Fallback</text>
-        <text x="684" y="173" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">default_fallback_url</text>
+        <text x="684" y="173" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">location.replace()</text>
 
-        <!-- Diamond 2: Deep Link Set? -->
+        <!-- Diamond 2: Safe Deep Link Set? -->
         <polygon points="280,244 384,288 280,332 176,288" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-        <text x="280" y="285" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Deep link</text>
+        <text x="280" y="285" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Safe deep link</text>
         <text x="280" y="300" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">configured?</text>
 
         <!-- Step: Open App URI -->
         <rect x="180" y="368" width="200" height="48" rx="6" fill="#f5f5f5"/>
         <rect x="180" y="368" width="200" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="280" y="390" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Launch Deep Link</text>
-        <text x="280" y="405" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ios / android_deep_link</text>
+        <text x="280" y="405" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">app link + 1.5s timer</text>
 
-        <!-- Diamond 3: App Opens (2s)? -->
+        <!-- Diamond 3: App Opens (1.5s)? -->
         <polygon points="280,448 384,492 280,536 176,492" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
         <text x="280" y="489" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">App handles URI</text>
-        <text x="280" y="504" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">within 2000ms?</text>
+        <text x="280" y="504" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">within 1500ms?</text>
 
         <!-- Step: Platform Fallback -->
         <rect x="584" y="468" width="200" height="48" rx="6" fill="#f5f5f5"/>
@@ -153,13 +153,13 @@
         <rect x="180" y="572" width="200" height="48" rx="20" fill="#f5f5f5"/>
         <rect x="180" y="572" width="200" height="48" rx="20" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
         <text x="280" y="594" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Native App Opens</text>
-        <text x="280" y="609" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">deep link handoff</text>
+        <text x="280" y="609" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">fallback timer cancelled</text>
 
         <!-- End oval: Web Redirect -->
         <rect x="584" y="572" width="200" height="48" rx="20" fill="#f5f5f5"/>
         <rect x="584" y="572" width="200" height="48" rx="20" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
         <text x="684" y="594" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Web / Store Redirect</text>
-        <text x="684" y="609" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">window.location.href</text>
+        <text x="684" y="609" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">location.replace()</text>
 
         <!-- Legend strip -->
         <line x1="40" y1="640" x2="920" y2="640" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>

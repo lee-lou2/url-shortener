@@ -4,186 +4,213 @@
 
 🚀 **데모:** [https://u.lou2.kr](https://u.lou2.kr)
 
-![demo site](docs/screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img alt="URL 단축기 데모 화면" src="docs/screenshot.png" width="760">
+</picture>
 
-Rust로 개발된 고성능 URL 단축 서비스입니다. 딥 링크 처리, 플랫폼별 리디렉션, OG 메타 태그, JWT 인증, Redis MessagePack 캐싱, 웹훅 알림을 지원합니다.
+Rust(Axum + PostgreSQL)로 만든 빠른 URL 단축 서비스입니다. 앱 딥링크, 플랫폼별 폴백, Open Graph 미리보기, 클릭 웹훅을 지원하며
+일반 링크는 `302` 한 번으로 리디렉션합니다.
+
+## 주요 기능
+
+- **충돌 없는 단축키**: DB id 기반 (`접두사(2) + base62(id) + 접미사(2)`), 같은 내용으로 다시 만들면 기존 링크를 반환
+- **딥링크**: iOS / iPadOS / Android 딥링크 + 스토어 폴백, 앱이 열리면 폴백 타이머를 취소
+- **소셜 미리보기**: 링크 미리보기 크롤러용 Open Graph / Twitter Card 태그, 생성 폼에서 실시간 미리보기
+- **클릭 웹훅**: 방문마다 비동기 `POST`, SSRF 방어, 동시성 제한, 종료 시 진행 중 호출 드레인
+- **계층형 캐시**: 프로세스 내 `moka` L1, 선택적 Redis L2(JSON), 원본은 PostgreSQL
+- **기본 보안**: `http(s)` 허용 목록, 해시 고정 CSP, IP별 레이트 리밋, 일반화된 5xx 오류, 시작 시 설정 검증
 
 ## 아키텍처
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
-  <img alt="System architecture — Clients, Tower middleware, JWT auth, Axum handlers, Redis cache, PostgreSQL, Webhook, and Sentry" src="docs/diagrams/architecture.png" width="960">
+  <img alt="시스템 아키텍처" src="docs/diagrams/architecture.png" width="960">
 </picture>
 
-## 핵심 기술
+| 영역 | 기술 |
+|------|------|
+| 웹 | Axum 0.8, Tower, Tokio |
+| 데이터 | PostgreSQL + SQLx (마이그레이션 내장, 부팅 시 실행) |
+| 캐시 | `moka`(L1) + 선택적 Redis `ConnectionManager`(L2, `u:{id}` JSON) |
+| 페이지 | `views/`의 순수 HTML/CSS/JS (빌드 단계·CDN 없음), 리디렉션 페이지는 Askama로 렌더링 |
+| 인증 | 게스트 JWT (`token` 쿠키 또는 `Authorization: Bearer`) |
+| 운영 | Sentry, `tracing`, mimalloc(Linux/macOS), graceful shutdown |
 
-| 영역 | 기술 | 설명 |
-|------|------|------|
-| 웹 프레임워크 | **Axum 0.8 + Tower** | 비동기 HTTP 서버, SmartIP 레이트 리미팅, gzip/br/zstd 압축 |
-| 데이터베이스 | **PostgreSQL + SQLx** | 타입 안전 쿼리, 자동 마이그레이션 |
-| 캐시 | **Redis + MessagePack** | `rmp-serde` 바이너리 직렬화 캐싱 (`urls:{short_key}`) |
-| 인증 | **JWT** | `Authorization: Bearer` 헤더 및 `token` 쿠키 인증 |
-| 해싱 | **xxHash (`xxh3_128`)** | 중복 URL 고속 감지 (`ON CONFLICT` 레이스 방지) |
-| 템플릿 | **Askama** | 컴파일 타임 검증 HTML 렌더링 (OG 태그 + 딥링크 스크립트) |
-| 메모리 | **mimalloc** | 고성능 글로벌 메모리 할당자 |
-| 모니터링 | **Sentry + tracing** | 구조화 로깅 및 5xx 서버 오류 자동 수집 |
-
-## URL 생성 플로우
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-creation-flow-dark.png">
-  <img alt="URL creation sequence — POST /v1/urls with JWT auth, validation, xxHash deduplication, and PostgreSQL ON CONFLICT" src="docs/diagrams/url-creation-flow.png" width="960">
-</picture>
-
-### 단축키 생성 방식
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/short-key-encoding-dark.png">
-  <img alt="Short key encoding pipeline — Base62 DB ID wrapped with 2-char random prefix and 2-char suffix" src="docs/diagrams/short-key-encoding.png" width="960">
-</picture>
-
-**특징:**
-- DB `BIGSERIAL` ID 기반으로 충돌 없음
-- 4자리 랜덤키를 접두사 2자 + 접미사 2자로 감싸 순차 추측(enumeration) 방지
-- `split_short_key`로 역산 후 DB의 `random_key`와 일치 여부를 검증해 위변조 차단
-- DB 크기와 무관하게 일정한 생성 성능
-
-## URL 리디렉션 플로우
+### 리디렉션: `GET /{short_key}`
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-redirect-flow-dark.png">
-  <img alt="URL redirect sequence — Redis cache lookup by urls:{short_key}, PostgreSQL fallback, Askama HTML response, and async semaphore-bounded webhook" src="docs/diagrams/url-redirect-flow.png" width="960">
+  <img alt="리디렉션 흐름" src="docs/diagrams/url-redirect-flow.png" width="960">
 </picture>
 
-### 플랫폼별 리디렉션
+| 링크 구성 | 응답 |
+|-----------|------|
+| 목적지 URL만 있음 (웹훅은 무관) | `302 Found` + `Location`, 본문 없음 |
+| 딥링크, 플랫폼 폴백 또는 Open Graph 필드가 있음 | `200 OK` HTML: OG 태그 + 플랫폼별 리디렉션 스크립트 |
+| 잘못되었거나 없거나 삭제된 키 | `404` `{"error":"URL not found"}` |
+
+모든 리디렉션 응답에는 `Cache-Control: private, no-cache`가 붙어 클릭마다 원본 서버에 도달합니다(웹훅 발송, 삭제 즉시 반영).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/platform-redirect-dark.png">
-  <img alt="Platform-specific redirect flowchart — User-Agent branching for iOS/Android deep links with 2000ms fallback timer and default web fallback" src="docs/diagrams/platform-redirect.png" width="960">
+  <img alt="플랫폼별 리디렉션" src="docs/diagrams/platform-redirect.png" width="960">
 </picture>
 
-- OG / Twitter Card / Schema.org 메타 태그가 HTML에 먼저 렌더링되어 SNS 크롤러가 미리보기를 정상 수집합니다.
-- 모바일 브라우저에서 딥링크가 설정된 경우 앱 실행을 시도하고, 2초(`2000ms`) 내 전환되지 않으면 플랫폼 폴백 URL(미설정 시 `default_fallback_url`)로 이동합니다.
+HTML 페이지의 동작: 데스크톱 브라우저는 목적지로 바로 이동합니다. iOS, iPadOS(`MacIntel` + 터치로 감지), Android에서는 딥링크를 시도하고,
+1.5초 뒤에도 페이지가 보이는 상태면 플랫폼 폴백(없으면 목적지)으로 교체 이동합니다. 페이지가 숨겨지거나 포커스를 잃으면(앱이 열림) 타이머를 취소합니다.
+이동에는 `location.replace`를 써서 뒤로 가기 루프가 생기지 않으며, **계속하기** 링크가 항상 보이고 JavaScript가 꺼져 있으면 `<noscript>` 안의 즉시 `<meta refresh>`로 목적지로 이동합니다.
 
-## 캐싱 전략
+### 단축키
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/short-key-encoding-dark.png">
+  <img alt="단축키 인코딩" src="docs/diagrams/short-key-encoding.png" width="960">
+</picture>
+
+- 형식 `[랜덤 2자][base62(id)][랜덤 2자]`, 문자 집합 `0-9A-Za-z`, 길이 `5..=15`, id 부분은 `0`으로 시작하지 않음
+- 캐시·DB 접근 전에 키를 먼저 파싱하며, 형식이 틀리면 `404`
+- 랜덤 부분은 저장된 `random_key`와 대조해 id 추측으로 순차 열거하기 어렵게 만듦
+
+### 생성: `POST /v1/urls`
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-creation-flow-dark.png">
+  <img alt="URL 생성 흐름" src="docs/diagrams/url-creation-flow.png" width="960">
+</picture>
+
+필드를 공백 제거(빈 값은 없음으로 처리) 후 한 번만 검증하고, 정규화된 9개 필드 전체의 SHA-256으로 링크를 식별합니다:
+`SELECT` → `INSERT … ON CONFLICT DO NOTHING` → 동시 경합일 때만 다시 `SELECT`. 중복 요청은 시퀀스를 소모하지 않고, 새 링크는 L1 캐시를 미리 채웁니다.
+
+### 캐싱
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/caching-strategy-dark.png">
-  <img alt="Cache-aside strategy — Redis MessagePack lookup, PostgreSQL fallback on miss, and 3600s SETEX write-back" src="docs/diagrams/caching-strategy.png" width="960">
+  <img alt="캐싱 전략" src="docs/diagrams/caching-strategy.png" width="960">
 </picture>
 
-**MessagePack 사용 이유:**
-- JSON 대비 30–50% 작은 페이로드 크기 (`UrlCacheData`는 타임스탬프 필드 제외)
-- 빠른 직렬화/역직렬화 (`rmp-serde`)
-- 캐시 쓰기 실패 시에도 리디렉션 응답을 차단하지 않고 정상 처리
+L1은 디코딩한 id를 키로 쓰며(존재하는 항목 60초, 없는 항목 15초, 바이트 상한, 같은 키의 동시 로드는 하나로 합침) L2 Redis는 선택 사항입니다.
+`REDIS_HOST`가 없거나 Redis가 내려가도 L1 + PostgreSQL로 계속 서비스합니다.
 
 ## 시작하기
 
-### 사전 준비
-
-- Rust (stable, `rust-toolchain.toml` 기준)
-- PostgreSQL
-- Redis
-
-### 실행
+Rust(1.88+, `Cargo.toml`의 `rust-version` 참고)와 Docker가 필요합니다.
 
 ```bash
-# 저장소 복제
-git clone https://github.com/lee-lou2/url-shortener.git
-cd url-shortener
-
-# 환경 변수 설정
+git clone https://github.com/lee-lou2/url-shortener.git && cd url-shortener
+docker compose up -d      # 개발용 PostgreSQL 15 + Redis 7
 cp .env.example .env
-
-# 실행
-cargo run --release
+cargo run                 # 마이그레이션 적용 후 http://localhost:3000
 ```
 
-### Docker
+검사: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test` (테스트는 compose 서비스를 사용합니다).
+운영은 Cloudflare Tunnel 뒤의 단일 컨테이너로 `RUST_ENV=production`에서 실행합니다(`Dockerfile`, `deploy.sh` 참고).
 
-```bash
-docker build -t url-shortener .
-docker run -p 3000:3000 --env-file .env url-shortener
-```
+## 환경 변수
 
-### 주요 환경 변수
+주석이 달린 기준 목록은 [`.env.example`](.env.example)입니다.
+
+<!-- src/config.rs, .env.example 과 항상 일치시킬 것 -->
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
-| `SERVER_PORT` | `3000` | 서버 포트 |
-| `RUST_ENV` | `development` | 실행 환경 (`production` 시 `JWT_SECRET`·Secure 쿠키 강제) |
-| `DB_HOST` | `localhost` | PostgreSQL 호스트 |
-| `REDIS_HOST` | `localhost` | Redis 호스트 |
-| `REDIS_MAX_CONNECTIONS` | `20` | Redis 커넥션 풀 최대 크기 |
-| `JWT_SECRET` | - | JWT 시크릿 (프로덕션 필수, 최소 32자) |
-| `CACHE_TTL_SECS` | `3600` | Redis 캐시 TTL (초) |
-| `RATE_LIMIT_PER_SECOND` | `10` | 초당 요청 제한 |
-| `RATE_LIMIT_BURST_SIZE` | `50` | 레이트 리밋 버스트 허용량 |
-| `WEBHOOK_TIMEOUT_SECS` | `10` | 웹훅 HTTP 타임아웃 (초) |
-| `WEBHOOK_MAX_CONCURRENT` | `100` | 세마포어 기반 최대 동시 웹훅 수 |
-| `RUN_MIGRATIONS` | `true` | 서버 시작 시 SQLx 마이그레이션 자동 실행 |
+| `SERVER_PORT` | `3000` | HTTP 포트 |
+| `RUST_ENV` | `development` | `production`/`prod`이면 `JWT_SECRET`(32바이트 이상) 필수 및 쿠키 `Secure` 추가 (`development`/`dev`/`test` 허용, 대소문자 무관) |
+| `RUST_LOG` | `info` | `tracing_subscriber` 로그 필터 |
+| `JWT_SECRET` | — | 게스트 토큰 서명 시크릿 |
+| `JWT_EXPIRATION_HOURS` | `24` | `1..=8760`, 쿠키 `Max-Age`로도 사용 |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | `.env.example` 참고 | PostgreSQL 접속 정보 (특수문자 비밀번호도 안전) |
+| `DB_MAX_CONNECTIONS` | `10` | 커넥션 풀 크기 |
+| `RUN_MIGRATIONS` | `true` | 부팅 시 `migrations/` 적용 (`true`/`1`/`yes`, `false`/`0`/`no`) |
+| `REDIS_HOST` | — | 비어 있으면 L1 전용 모드 (`/ready`의 `cache: "disabled"`) |
+| `REDIS_PORT`, `REDIS_USER`, `REDIS_PASSWORD`, `REDIS_DB` | `.env.example` 참고 | Redis 접속 정보 (L2 TTL은 L1과 동일한 최대 60초) |
+| `CACHE_MAX_CAPACITY_BYTES` | `33554432` | L1 바이트 상한 (32 MiB) |
+| `RATE_LIMIT_PER_SECOND` | `10` | `POST /v1/urls`, `GET /`의 IP별 초당 허용량 |
+| `RATE_LIMIT_BURST_SIZE` | `20` | 같은 경로의 IP별 버스트 |
+| `CORS_ORIGINS` | — | 쉼표로 구분한 오리진, 비어 있으면 비활성 (`*`는 개발 환경에서만 허용되며 운영에서는 경고 후 무시) |
+| `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE` | — / `0.1` | 선택 사항, 5xx 오류 보고 및 트레이스 샘플링 비율(`0.0..=1.0`) |
+
+이전 버전의 미사용 환경 변수(`CACHE_TTL_SECS`, `WEBHOOK_*` 등)는 안전하게 무시됩니다. 빈 값(`KEY=`)은 기본값으로 처리됩니다.
 
 ## API
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|:----:|------|
-| `GET` | `/` | - | 메인 페이지 렌더링 및 게스트 JWT 쿠키(`token`) 발급 |
-| `POST` | `/v1/urls` | JWT | 단축 URL 생성 (중복 시 기존 `short_key` 반환) |
-| `GET` | `/{short_key}` | - | OG 태그 및 플랫폼별 딥링크 리디렉션 HTML 반환 |
-| `GET` | `/health` | - | Liveness 프로브 (`{ status, version }`) |
-| `GET` | `/ready` | - | Readiness 프로브 (PostgreSQL·Redis 연결 확인) |
+| `GET` | `/` | – | 웹 UI, 게스트 쿠키 `token` 발급 (`HttpOnly; SameSite=Lax; Path=/; Max-Age=…`, 운영에서는 `Secure`) |
+| `POST` | `/v1/urls` | 토큰 | 단축 링크 생성 또는 재사용 |
+| `GET` | `/{short_key}` | – | `302` 또는 HTML 리디렉션 (위 표 참고) |
+| `GET` | `/health` | – | `{"status":"ok","version":"…"}` |
+| `GET` | `/ready` | – | PostgreSQL `SELECT 1` + Redis `PING`: `200 ok`, `200 degraded`(Redis 장애, 서비스는 계속), `503 error`(DB 장애) |
 
-### `POST /v1/urls` - URL 생성
+### `POST /v1/urls`
 
-`Authorization: Bearer <token>` 헤더 또는 `token` 쿠키가 필요합니다.
+`token` 쿠키 또는 `Authorization: Bearer <token>`(스킴은 대소문자 무관)이 필요합니다. 토큰은 사용자 신원이 아닌 게스트 토큰입니다:
 
-**요청:**
-```json
-{
-  "defaultFallbackUrl": "https://example.com",
-  "iosDeepLink": "myapp://path",
-  "iosFallbackUrl": "https://apps.apple.com/app/myapp",
-  "androidDeepLink": "myapp://path",
-  "androidFallbackUrl": "https://play.google.com/store/apps/details?id=com.myapp",
-  "webhookUrl": "https://webhook.example.com",
-  "ogTitle": "제목",
-  "ogDescription": "설명",
-  "ogImageUrl": "https://example.com/image.jpg"
-}
+```bash
+# 1) 게스트 쿠키 받기
+curl -s -c jar.txt https://u.lou2.kr/ -o /dev/null
+# 2) 링크 생성
+curl -s -b jar.txt https://u.lou2.kr/v1/urls \
+  -H 'Content-Type: application/json' \
+  -d '{"defaultFallbackUrl":"https://example.com","iosDeepLink":"myapp://home","iosFallbackUrl":"https://apps.apple.com/app/myapp"}'
+# => {"message":"URL shortened successfully","short_key":"Ab3D7Xy","created":true}
 ```
 
-**응답:**
-```json
-{
-  "message": "URL created successfully",
-  "short_key": "Ab3D7Xy"
-}
-```
+| 필드 | 필수 | 규칙 |
+|------|:----:|------|
+| `defaultFallbackUrl` | ✓ | `http`/`https` URL, 2048바이트 이하 |
+| `iosFallbackUrl`, `androidFallbackUrl`, `ogImageUrl` | | `http`/`https` URL |
+| `iosDeepLink`, `androidDeepLink` | | `javascript`, `data`, `vbscript`, `file`, `blob`, `about`을 제외한 모든 스킴 |
+| `ogTitle` / `ogDescription` | | 200자 이하 / 500자 이하 |
+| `webhookUrl` | | 공개 호스트의 `http`/`https` URL, 방문마다 `POST {"short_key","user_agent"}` 수신 |
 
-### `GET /{short_key}` - 리디렉션
+빈 문자열은 값이 없는 것으로 처리합니다. 성공: `201` `{"message":"URL shortened successfully","short_key":"…","created":true}`, 또는 `200`
+`{"message":"URL already exists","short_key":"…","created":false}`. 모든 오류는 `{"error":"…"}` 형식입니다: `400`/`422` 검증 실패, `401` 토큰 없음·무효,
+`408` 타임아웃(15초), `413` 본문 32 KiB 초과, `429` 레이트 리밋(`Retry-After` 포함), `500` 일반화된 서버 오류.
 
-단축 URL을 원본 URL로 리디렉션하는 HTML 페이지를 반환하고, `webhookUrl`이 설정된 경우 `{ short_key, user_agent }` 페이로드를 비동기로 전송합니다.
+## 보안 모델
+
+- **XSS:** URL은 허용 목록(`http`/`https`, 딥링크는 실행형 스킴 제외)으로 검증하고, 캐시 항목을 만들 때 다시 검증하므로 과거 데이터의 `javascript:`도 통하지 않습니다.
+  두 페이지 모두 인라인 스크립트가 정확히 하나이며 `script-src 'sha256-…'`(`default-src 'none'`)로 고정되고, 동적 데이터는 이스케이프된 `data-*` 속성으로만 전달하며 `X-Content-Type-Options: nosniff`를 보냅니다.
+- **SSRF:** 웹훅은 공용이 아닌 주소(루프백, RFC 1918, 링크로컬/메타데이터, CGNAT, ULA, 매핑된 IPv4)를 거부하는 DNS 리졸버를 가진 공유 클라이언트를 사용하고,
+  리터럴 IP 호스트는 생성·발송 시점에 모두 검사하며, 리디렉션 비활성화, 5초 타임아웃, 동시성 제한, 종료 시 드레인을 적용합니다.
+- **남용 제한:** `POST /v1/urls`와 `GET /`에 IP별 레이트 리밋. Cloudflare 뒤에서는 `CF-Connecting-IP`를 쓰되 TCP 피어가 루프백/사설 주소일 때만 신뢰합니다. 리디렉션과 헬스체크는 제한하지 않습니다.
+- **인증:** 게스트 JWT는 신원이 아니라 속도 제한용 장치입니다(`/`만 열면 누구나 받음). 운영에서는 32바이트 이상의 `JWT_SECRET` 없이는 시작하지 않습니다.
+- **기본 위생:** JSON 오류와 일반화된 5xx 메시지, 32 KiB 본문 제한, 15초 요청 타임아웃, 접속 URL에 자격 증명을 끼워 넣지 않음.
+- **삭제(테이크다운):** `UPDATE urls SET deleted_at = now() WHERE id = …` (L1 항목은 60초 안에 만료, Redis L2를 켰다면 `DEL u:{id}`도 실행).
+
+## 성능
+
+단일 CPU 워커(`TOKIO_WORKER_THREADS=1`), 로컬 macOS(Apple Silicon)의 PostgreSQL 15.19(**100만 행**, 일반 링크 ~85% + OG/딥링크 ~15%) + Redis 8.10 환경에서 리디자인 전후를 동일 하네스로 실측한 결과입니다(운영 1 CPU / 512 MB Linux 컨테이너 절대치와 다를 수 있습니다).
+
+| 항목 | 개선 전 (`main`) | 개선 후 (v2) | 변화 |
+|------|------------------:|-------------:|------|
+| PostgreSQL 인덱스 (100만 행) | 5개 (**129.8 MB**) | 2개 (**78.0 MB**) | **-39.9%** (중복 3개 제거) |
+| 10,000건 벌크 `INSERT` / WAL | 63.5k rows/s · 4.10 MB | **119.8k rows/s · 1.76 MB** | **1.89배 처리량 · WAL -57.1%** |
+| 핫 Zipfian 리디렉션 (c=32, `br,gzip`) | 20,643 RPS (p99 2.27 ms) | **120,303 RPS** (p99 **0.37 ms**) | **5.83배 RPS · p99 6.1배 개선** |
+| 핫 Zipfian 리디렉션 (c=64, `br,gzip`) | 21,252 RPS (p99 3.69 ms) | **139,324 RPS** (p99 **0.64 ms**) | **6.56배 RPS · p99 5.8배 개선** |
+| 핫 / 콜드 100만 건 (L1 전용, `REDIS_HOST=""`) | — | **147,417 / 35,475 RPS** (p99 0.31 / 1.32 ms) | 단일 노드에서 L1+L2 대비 +22~25% |
+| 콜드 랜덤 100만 건 (L1+L2, c=32) | 15,337 RPS (p99 3.17 ms) | **28,487 RPS** (p99 **1.75 ms**) | **1.86배 RPS · p99 1.8배 개선** |
+| 오타 `random_key` 2,000건 (`id=42`) | PG 스캔 **2,000회** | PG 스캔 **1회** | **-99.95% DB 부하** |
+| 선행 `'0'` 별칭 2,000건 공격 | `200` 2,000건 · Redis +2,000키 | **`404` 2,000건 · DB/Redis 0회** | I/O 전 100% 차단 |
+| 200-way 콜드 스탬피드 | PG 스캔 **20회** (p99 16.80 ms) | PG 스캔 **1회** (p99 **6.76 ms**) | singleflight로 20배 감소 |
+| Redis 종료(`SIGTERM`) / 정지(`SIGSTOP`) | **100% HTTP 500** / **100% 3초 타임아웃** | **오류 0% · 타임아웃 0건** (p50 < 1 ms) | 무중단 폴백 및 자동 복구 |
+| 중복 생성 50건 시퀀스 소모 / OG 하이재킹 | 시퀀스 50 소모 · 하이재킹 발생 | **시퀀스 0 소모 · 키 분리** | 9필드 SHA-256 + `SELECT` 우선 |
+
+> 단일 컨테이너(예: 1 CPU / 512 MB)에서 PostgreSQL과 같은 호스트를 쓴다면 `REDIS_HOST`를 비워 L1 전용으로 운영할 때 가장 빠릅니다(핫 147k / 콜드 35k RPS, 피크 RSS ~99 MB). 다중 인스턴스 수평 확장이나 재시작 직후 캐시 유지가 필요하면 Redis L2를 켜세요.
 
 ## 프로젝트 구조
 
 ```
-├── src/
-│   ├── main.rs           # 진입점, 미들웨어 스택, graceful shutdown
-│   ├── lib.rs            # 라이브러리 크레이트
-│   ├── error.rs          # 중앙 에러 처리 (AppError, AppResult)
-│   ├── api/              # HTTP 핸들러, 라우트, 스키마, JWT 미들웨어
-│   ├── config/           # 환경 설정, PostgreSQL/Redis 풀 초기화
-│   ├── models/           # Url, UrlCacheData, UrlRepository, 웹훅 전송
-│   └── utils/            # JWT, Base62 단축키, 랜덤 문자열
-├── migrations/           # SQLx 마이그레이션 SQL
-├── views/                # Askama HTML 템플릿 (index.html, redirect.html)
-├── tests/                # 통합 테스트 (DB 없이 실행 가능)
-└── docs/
-    ├── screenshot.png    # 데모 화면 캡처
-    └── diagrams/         # 에디토리얼 아키텍처·플로우 다이어그램 (PNG + HTML/SVG 원본)
+├── src/          평면 모듈 11개 (main, lib, config, error, short_key, auth, links, redirect, cache, webhook, handlers)
+├── views/        index.html(생성 UI), redirect.html(딥링크·OG 리디렉션용 Askama 템플릿)
+├── migrations/   SQLx 마이그레이션 (적용된 파일은 수정 금지)
+├── tests/        실제 PostgreSQL·Redis를 쓰는 라우터 테스트
+├── compose.yaml  개발용 PostgreSQL 15 + Redis 7
+└── docs/         스크린샷과 에디토리얼 다이어그램 (docs/diagrams/README.md)
 ```
 
-다이어그램 원본 목록은 [docs/diagrams/README.md](docs/diagrams/README.md)에서 확인할 수 있습니다.
+기여자와 AI 코딩 에이전트는 [AGENTS.md](AGENTS.md)를 먼저 읽어 주세요.
 
 ## 라이선스
 

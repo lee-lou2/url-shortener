@@ -1,66 +1,32 @@
-# Build stage
-FROM rust:alpine AS builder
+FROM rust:1.88-alpine3.21 AS builder
 
-# Install build dependencies
-RUN apk add --no-cache musl-dev pkgconfig
+RUN apk add --no-cache musl-dev pkgconf
+WORKDIR /build
 
-WORKDIR /app
+# Cache dependency compilation across source-only edits.
+COPY Cargo.toml Cargo.lock askama.toml ./
+RUN mkdir -p src views migrations \
+    && printf 'pub fn _stub() {}\n' > src/lib.rs \
+    && printf 'fn main() {}\n' > src/main.rs \
+    && cargo build --locked --release \
+    && rm -rf src
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+COPY src/ ./src/
+COPY views/ ./views/
+COPY migrations/ ./migrations/
+RUN touch src/lib.rs src/main.rs && cargo build --locked --release
 
-# Create dummy files to cache dependencies
-RUN mkdir src && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "" > src/lib.rs
+FROM alpine:3.21
 
-# Build dependencies (this layer will be cached)
-RUN cargo build --release && rm -rf src
-
-# Copy source code and config files
-COPY src ./src
-COPY views ./views
-COPY migrations ./migrations
-COPY askama.toml ./
-
-# Touch main.rs to trigger rebuild
-RUN touch src/main.rs
-
-# Build the application
-RUN cargo build --release
-
-# Runtime stage
-FROM alpine:3.20
-
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates
-
-WORKDIR /app
-
-# Copy the binary from builder
-COPY --from=builder /app/target/release/url-shortener .
-
-# Copy views and migrations
-COPY --from=builder /app/views ./views
-COPY --from=builder /app/migrations ./migrations
-
-# Create non-root user
-RUN addgroup -g 1000 app && \
-    adduser -D -s /bin/sh -u 1000 -G app app && \
-    chown -R app:app /app
-
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S app \
+    && adduser -S -G app app
+COPY --from=builder /build/target/release/url-shortener /usr/local/bin/url-shortener
 USER app
 
-# Expose port
+ENV RUST_LOG=info SERVER_PORT=3000
 EXPOSE 3000
-
-# Set environment variables
-ENV RUST_LOG=info
-ENV SERVER_PORT=3000
-
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+    CMD wget -q -T 2 -O /dev/null "http://127.0.0.1:${SERVER_PORT:-3000}/health" || exit 1
 
-# Run the binary
-CMD ["./url-shortener"]
+ENTRYPOINT ["url-shortener"]

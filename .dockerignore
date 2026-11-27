@@ -1,0 +1,11 @@
+target/
+.git/
+.github/
+docs/
+tests/
+.env
+.env.*
+!.env.example
+*.md
+compose.yaml
+deploy.sh

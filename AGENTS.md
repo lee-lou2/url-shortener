@@ -1,424 +1,86 @@
 # AGENTS.md
 
-> Project Guide for AI Coding Agents
+Single source of truth for AI coding agents and human contributors (`CLAUDE.md` only imports this file).
+Rule for this file: never restate what code, `.env.example` or `migrations/` already say — link to them.
 
----
-
-## Project Overview
-
-**url-shortener** is a high-performance URL shortening service built with Rust.
-
-### Core Features
-
-| Feature | Description |
-|---------|-------------|
-| URL Shortening | Collision-free short key generation using Base62 encoding |
-| Deep Links | iOS/Android app deep links + platform-specific fallback URLs |
-| OG Tags | Social media link previews |
-| Webhooks | Real-time notifications on URL access (Semaphore concurrency control) |
-| Redis Caching | High-speed caching with MessagePack serialization |
-| JWT Auth | Token-based API authentication |
-| Rate Limiting | SmartIP-based request throttling |
-
-### Tech Stack
-
-| Area | Technology |
-|------|------------|
-| Language | Rust 2021 Edition |
-| Web Framework | Axum 0.8 |
-| Async Runtime | Tokio |
-| Database | PostgreSQL (SQLx) |
-| Cache | Redis (deadpool-redis) + MessagePack |
-| Templates | Askama |
-| Error Handling | thiserror |
-| Logging | tracing |
-| Hashing | xxhash-rust (xxh3_128) |
-| Memory Allocator | mimalloc |
-
----
+**What:** Rust (Axum 0.8, SQLx, PostgreSQL) URL shortener, live at `https://u.lou2.kr` behind a Cloudflare Tunnel
+(`http://url-shortener:3000`, 1 CPU / 512 MB). Production rows and issued short keys are live, so the invariants below are not negotiable.
 
 ## Architecture
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.png">
-  <img alt="System architecture — Clients, Tower middleware, JWT auth, Axum handlers, Redis cache, PostgreSQL, Webhook, and Sentry" src="docs/diagrams/architecture.png" width="960">
-</picture>
-
-### Data Flow
-
-#### URL Creation (`POST /v1/urls`)
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-creation-flow-dark.png">
-  <img alt="URL creation sequence" src="docs/diagrams/url-creation-flow.png" width="960">
-</picture>
-
-#### URL Redirect (`GET /{short_key}`)
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/url-redirect-flow-dark.png">
-  <img alt="URL redirect sequence" src="docs/diagrams/url-redirect-flow.png" width="960">
-</picture>
-
----
-
-## Project Structure
-
-```
-src/
-├── main.rs                 # Entry point, server bootstrap
-├── lib.rs                  # Library crate
-├── error.rs                # Centralized error types (AppError, AppResult)
-├── api/
-│   ├── mod.rs              # API module exports
-│   ├── handlers.rs         # HTTP handlers (index, create_short_url, redirect)
-│   ├── routes.rs           # Route definitions + middleware setup
-│   ├── schemas.rs          # Request/Response DTOs + validation
-│   ├── middlewares.rs      # JWT auth middleware (AuthUser)
-│   └── state.rs            # AppState (DB pool, Redis pool)
-├── config/
-│   ├── mod.rs              # Config module exports
-│   ├── env.rs              # Environment variable loading (APP_CONFIG)
-│   ├── db.rs               # PostgreSQL connection pool
-│   └── cache.rs            # Redis connection pool
-├── models/
-│   ├── mod.rs              # Models module exports
-│   └── url.rs              # Url, UrlCacheData, UrlRepository
-└── utils/
-    ├── mod.rs              # Utils module exports
-    ├── jwt.rs              # JWT generation/parsing (gen_token, parse_token)
-    ├── rand.rs             # Random string generation
-    └── short_key.rs        # Base62 encoding/decoding
-
-tests/
-└── integration_test.rs     # Integration tests (runnable without DB)
-
-migrations/                 # SQLx migration files
-views/                      # Askama HTML templates
-docs/diagrams/              # Editorial diagrams (PNG + HTML/SVG sources)
-```
-
----
-
-## Core Modules
-
-### Error Handling (`src/error.rs`)
-
-| Variant | Source (`#[from]`) | HTTP Status | Sentry Capture |
-|---------|--------------------|-------------|----------------|
-| `BadRequest` / `Validation` | manual / `ValidationErrorExt` | `400 Bad Request` | No |
-| `Json` | `serde_json::Error` | `400 Bad Request` | No |
-| `Unauthorized` / `Jwt` | manual / `jsonwebtoken::errors::Error` | `401 Unauthorized` | No |
-| `NotFound` | manual | `404 Not Found` | No |
-| `Internal` | manual | `500 Internal Server Error` | Yes |
-| `Database` | `sqlx::Error` | `500 Internal Server Error` | Yes |
-| `Redis` / `RedisPool` | `deadpool_redis` errors | `500 Internal Server Error` | Yes |
-| `Template` | `askama::Error` | `500 Internal Server Error` | Yes |
-| `HttpClient` | `reqwest::Error` | `500 Internal Server Error` | Yes |
-
-```rust
-pub type AppResult<T> = Result<T, AppError>;
-```
-
-### Handler Pattern (`src/api/handlers.rs`)
-
-```rust
-pub async fn handler_name(
-    State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthUser>,  // if auth required
-    Json(body): Json<RequestType>,
-) -> AppResult<impl IntoResponse> {
-    // 1. Validation
-    body.validate().map_err(|e| e.to_validation_error())?;
-
-    // 2. Business logic
-    let result = do_something(&state.db).await?;
-
-    // 3. Return response
-    Ok(Json(ResponseType { ... }))
-}
-```
-
-### URL Repository (`src/models/url.rs`)
-
-| Method | Return Type | Purpose |
-|--------|-------------|---------|
-| `find_by_hashed_value(pool, hash)` | `AppResult<Option<Url>>` | Lookup active (non-deleted) URL by `xxh3_128` hash |
-| `find_by_id_for_cache(pool, id)` | `AppResult<Option<UrlCacheData>>` | Cache-miss query excluding timestamp columns (`is_active = true`) |
-| `create_or_find(pool, new_url)` | `AppResult<CreateOrFindResult>` | Race-safe `INSERT ... ON CONFLICT DO NOTHING` → `Created(Url)` or `Existing(Url)` |
-
-### Webhook Concurrency Control (`src/models/url.rs`)
-
-`UrlCacheData::spawn_webhook_task()` spawns a non-blocking `tokio::spawn` task that calls `WEBHOOK_SEMAPHORE.try_acquire()`:
-
-1. **Permit acquired**: sends `POST` JSON `{ short_key, user_agent }` via shared `HTTP_CLIENT` (`WEBHOOK_TIMEOUT_SECS`, default `10s`) and drops the permit on completion.
-2. **Queue full (`Err`)**: logs a warning and skips the notification without blocking the redirect response.
-
-```rust
-static WEBHOOK_SEMAPHORE: Lazy<Arc<Semaphore>> =
-    Lazy::new(|| Arc::new(Semaphore::new(APP_CONFIG.webhook_max_concurrent)));
-```
-
----
-
-## Database Schema
-
-### `urls` Table
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | BIGSERIAL PK | Auto-increment ID |
-| random_key | VARCHAR(4) | Random key (prefix 2 + suffix 2) |
-| default_fallback_url | TEXT NOT NULL | Default redirect URL |
-| ios_deep_link | TEXT | iOS deep link |
-| ios_fallback_url | TEXT | iOS fallback URL |
-| android_deep_link | TEXT | Android deep link |
-| android_fallback_url | TEXT | Android fallback URL |
-| hashed_value | TEXT NOT NULL | xxHash (duplicate prevention) |
-| webhook_url | TEXT | Webhook URL |
-| og_title | VARCHAR(255) | OG title |
-| og_description | TEXT | OG description |
-| og_image_url | TEXT | OG image |
-| is_active | BOOLEAN | Active status |
-| created_at | TIMESTAMPTZ | Creation timestamp |
-| deleted_at | TIMESTAMPTZ | Soft delete timestamp |
-
-### Indexes
-
-| Index | Purpose |
-|-------|---------|
-| idx_urls_hashed_value_unique | Duplicate prevention (partial, WHERE deleted_at IS NULL) |
-| idx_urls_id_active | ID lookup optimization (partial) |
-| idx_urls_is_active_partial | Active URL filtering (partial) |
-
----
-
-## API Endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|:----:|-------------|
-| GET | `/` | ❌ | Main page + guest JWT issuance |
-| POST | `/v1/urls` | ✅ | Create short URL |
-| GET | `/{short_key}` | ❌ | Redirect to original URL |
-| GET | `/health` | ❌ | Liveness probe |
-| GET | `/ready` | ❌ | Readiness probe (DB + Redis) |
-
----
-
-## Key Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SERVER_PORT` | 3000 | Server port |
-| `DB_HOST` | localhost | PostgreSQL host |
-| `DB_MAX_CONNECTIONS` | 20 | Max DB connections |
-| `REDIS_HOST` | localhost | Redis host |
-| `CACHE_TTL_SECS` | 3600 | Cache TTL (seconds) |
-| `JWT_SECRET` | - | JWT secret (**required in production**) |
-| `RATE_LIMIT_PER_SECOND` | 10 | Requests per second limit |
-| `WEBHOOK_MAX_CONCURRENT` | 100 | Max concurrent webhooks |
-| `RUN_MIGRATIONS` | true | Run migrations on startup |
-
----
-
-## Key Constants
-
-| Constant | Value | Location |
-|----------|-------|----------|
-| `SHORT_KEY_MIN_LEN` | 5 | short_key.rs |
-| `RANDOM_KEY_LEN` | 4 | short_key.rs |
-| `RAND_PREFIX_LEN` | 2 | short_key.rs |
-| `RAND_SUFFIX_LEN` | 2 | short_key.rs |
-| `MIN_SECRET_LENGTH` | 32 | jwt.rs |
-
----
-
-## Code Style
-
-### Clippy Configuration
-
-```toml
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-```
-
-### Naming Conventions
-
-| Item | Style | Example |
-|------|-------|---------|
-| Crates/Modules | `snake_case` | `url_shortener`, `short_key` |
-| Types/Traits | `PascalCase` | `UrlCacheData`, `AppError` |
-| Functions/Methods | `snake_case` | `create_short_url_handler` |
-| Constants | `SCREAMING_SNAKE_CASE` | `APP_CONFIG`, `DB_POOL` |
-| HTTP Handlers | `*_handler` suffix | `index_handler`, `redirect_to_original_handler` |
-
-### Import Order
-
-```rust
-// 1. std
-use std::sync::Arc;
-
-// 2. External crates
-use axum::Router;
-use tokio::sync::Semaphore;
-
-// 3. Internal modules
-use crate::api::AppState;
-use crate::config::APP_CONFIG;
-```
-
----
-
-## AI Agent Guidelines
-
-### ✅ DO's
-
-1. **Run `cargo check` or `cargo build` after changes** - verify compilation
-2. **Run `cargo clippy`** - follow Rust idioms
-3. **Run `cargo fmt`** - code formatting
-4. **Run `cargo test`** - regression testing
-5. **Use existing `AppError`** - don't create new error types
-6. **Follow `UrlRepository` pattern** - for DB operations
-7. **Use `?` operator** - for error propagation
-8. **Use `Cow<'static, str>`** - minimize string allocations
-9. **Use `tracing` macros** - for logging (`tracing::info!`, etc.)
-
-### ❌ DON'Ts
-
-1. **No `.unwrap()` / `.expect()`** - use `?` or proper error handling
-2. **No `unsafe` code** - forbidden by lint
-3. **Don't ignore Clippy warnings**
-4. **Don't bypass auth middleware**
-5. **No blocking operations in async context**
-6. **Don't hardcode config values** - use `APP_CONFIG`
-7. **No `println!`** - use `tracing`
-
----
-
-## Common Patterns
-
-### Adding a New Handler
-
-1. Define and validate the DTO in `src/api/schemas.rs`.
-2. Implement `*_handler` in `src/api/handlers.rs`.
-3. Register the route (and `jwt_auth` layer if protected) in `src/api/routes.rs`.
-
-```rust
-// 1. src/api/schemas.rs
-#[derive(Debug, Deserialize, Validate)]
-pub struct NewFeatureRequest {
-    #[validate(length(min = 1, max = 100))]
-    pub field: String,
-}
-
-// 2. src/api/handlers.rs
-pub async fn new_feature_handler(
-    State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthUser>,
-    Json(body): Json<NewFeatureRequest>,
-) -> AppResult<impl IntoResponse> {
-    body.validate().map_err(|e| e.to_validation_error())?;
-    // Business logic
-    Ok(Json(response))
-}
-
-// 3. src/api/routes.rs
-.route("/v1/new-feature", post(new_feature_handler))
-```
-
-### Caching Pattern
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/caching-strategy-dark.png">
-  <img alt="Cache-aside strategy — Redis MessagePack lookup, PostgreSQL fallback on miss, and 3600s SETEX write-back" src="docs/diagrams/caching-strategy.png" width="960">
-</picture>
-
-```rust
-// 1. Try cache (`urls:{short_key}`)
-let cache_key = format!("urls:{short_key}");
-if let Ok(cached) = redis.get::<_, Vec<u8>>(&cache_key).await {
-    if let Ok(data) = rmp_serde::from_slice::<UrlCacheData>(&cached) {
-        return Ok(data);
-    }
-}
-
-// 2. DB fallback (`split_short_key` + `random_key` check)
-let (id, rand_key) = split_short_key(&short_key);
-let data = UrlRepository::find_by_id_for_cache(&db, id as i64).await?;
-
-// 3. Update cache
-if let Some(data) = &data {
-    if let Ok(serialized) = rmp_serde::to_vec(data) {
-        let _: Result<(), _> = redis.set_ex(&cache_key, serialized, APP_CONFIG.cache_ttl_secs).await;
-    }
-}
-```
-
-### Adding DB Query
-
-```rust
-impl UrlRepository {
-    pub async fn new_query(pool: &PgPool, param: &str) -> AppResult<Option<Url>> {
-        sqlx::query_as!(
-            Url,
-            r#"
-            SELECT id, random_key, default_fallback_url, ...
-            FROM urls
-            WHERE some_column = $1 AND deleted_at IS NULL
-            "#,
-            param
-        )
-        .fetch_optional(pool)
-        .await
-        .map_err(AppError::from)
-    }
-}
-```
-
----
-
-## Debugging Tips
-
-| Setting | Purpose |
-|---------|---------|
-| `RUST_LOG=debug` | Enable debug logging |
-| `RUST_LOG=sqlx=trace` | SQL query logging |
-| `redis-cli MONITOR` | Real-time Redis command monitoring |
-
----
-
-## Security Checklist
-
-- [ ] Input validation with `validator` crate
-- [ ] SQLx parameterized queries (SQL injection prevention)
-- [ ] Protected routes go through `auth_middleware`
-- [ ] Secrets via environment variables (no hardcoding)
-- [ ] Rate limiting with `tower_governor`
-
----
-
-## Limitations
-
-1. **Single Instance**: Redis cache sharing required for horizontal scaling
-2. **Cache Dependency**: Falls back to direct DB queries without Redis
-3. **Webhook Reliability**: Fire-and-forget approach (no retry)
-4. **JWT Secret**: `JWT_SECRET` required in production
-
----
-
-## Pre-commit Checklist
-
+11 flat `src/` files, no sub-directories, no `static`/`Lazy` globals (all state lives in `AppState`).
+`GET /{short_key}` runs `parse_short_key` (before any I/O), then one L1 `moka` cache keyed by `i64 id`
+(found 60 s / missing 15 s, byte-capped, singleflight), then optional L2 Redis (`ConnectionManager`, `u:{id}` JSON, circuit breaker;
+L1 + PostgreSQL only when `REDIS_HOST` is unset or Redis is down), then PostgreSQL. A link compiles into one of two `RedirectPayload`s:
+no deep links / platform fallbacks / OG fields → `302` + `Location`; otherwise → pre-rendered `200` HTML (`views/redirect.html`).
+Short key = `prefix(2) + base62(id) + suffix(2)` (v1). Dedupe = SHA-256 over 9 normalized fields.
+
+## Module map (`src/`)
+| File | Single responsibility |
+|---|---|
+| `main.rs` | Binary only: tracing, Sentry, `Config`, connect, migrate, serve, graceful shutdown (imports `url_shortener::*`) |
+| `lib.rs` | Library root: declares the 9 crate modules imported by `main.rs` and `tests/` |
+| `config.rs` | Env → `Config`, fail-fast validation, `PgConnectOptions` / Redis `ConnectionInfo` |
+| `error.rs` | `AppError`, `ApiJson<T>`: every error is `{"error": "..."}`; 5xx messages are generic |
+| `short_key.rs` | Inline base62, `parse_short_key`, `encode_short_key`, golden vectors |
+| `auth.rs` | Guest JWT mint/verify, hand-rolled cookie, `Bearer`/cookie middleware, `CF-Connecting-IP` write rate limiter |
+| `links.rs` | Normalize + validate request, 9-field SHA-256 hash, SQL (`find_active`, `create_or_find`) |
+| `redirect.rs` | `LinkRecord` → `RedirectPayload`, `RedirectPage` template, CSP script hashes |
+| `cache.rs` | L1 moka + optional L2 Redis (60 s TTL, timeouts, breaker, async write-back) |
+| `webhook.rs` | Fire-and-forget POST, `SafeDnsResolver`, bounded concurrency, drain on shutdown |
+| `handlers.rs` | `AppState`, `create_routes()`, middleware (body limit, 15 s timeout, CORS, headers), thin handlers (`index`, `create_link`, `redirect`, `health`, `ready`) |
+
+Other: `views/index.html` (served verbatim), `views/redirect.html` (Askama `RedirectPage`), `migrations/`, `tests/`,
+`compose.yaml`, `.env.example`, `docs/diagrams/` (`src/*.html` are the sources of the PNGs).
+
+## Invariants (never break)
+1. **Migrations:** never edit an applied file (SQLx checksums). Schema change = new migration;
+   `CONCURRENTLY` = one statement per `-- no-transaction` file.
+2. **Short key:** current v1 length `5..=15` (`prefix(2)+base62(id)+suffix(2)`) plus legacy 2-char `random_key` length `3..=4` (`prefix(1)+base62(id)+suffix(1)`), ASCII alphanumeric `0-9A-Za-z`, id part never starts with `'0'`, `1 <= id <= i64::MAX`,
+   parsed before any cache/DB call. Anything invalid → `404 {"error":"URL not found"}` (also `/favicon.ico`, `/robots.txt`).
+3. **Contract:** `GET /`, `POST /v1/urls`, `GET /{short_key}`, `GET /health`, `GET /ready`. Request fields are camelCase;
+   response is `{message, short_key, created}` (`201` new, `200` existing); errors are `{"error": "..."}`.
+   Env var names are the production contract: removed legacy knobs are ignored; never reuse an old name with new meaning.
+4. **URLs:** destination, platform fallbacks, OG image and webhook are `http`/`https` only (≤ 2048 bytes, no control bytes,
+   stored as `Url::as_str()`). Deep links may use any scheme except `javascript data vbscript file blob about`.
+   Re-validate when compiling a cache entry (legacy rows can predate these rules).
+5. **Webhooks:** only through the shared client with `SafeDnsResolver`, redirects off, literal-IP hosts checked at create **and** dispatch.
+6. **Views/CSP:** each view has exactly one bare `<script>` (no attributes, no template interpolation inside), one `<style>`,
+   no inline `on*=` / `style=`, no external resources. Dynamic data reaches JS only through `data-*` attributes.
+   The server hashes the script text at startup for `script-src 'sha256-…'`, so scripts are edited freely but must stay a single block.
+7. **SQL:** parameterized binds only (never `format!`); always filter `deleted_at IS NULL AND is_active = true`.
+   Takedown = `UPDATE urls SET deleted_at = now() WHERE id = $1` (L1 expires within 60 s; also `DEL u:{id}` if L2 is on).
+8. **Code:** zero global mutable statics (only `#[global_allocator]` mimalloc in `main.rs`); no `.unwrap()` / `.expect()` / `panic!` outside tests and `main` startup; no `println!` (use `tracing`);
+   config only via `Config` in `AppState`; keep every file under `src/` under ~300 lines (split by responsibility).
+9. **Rate limit:** only `POST /v1/urls` and `GET /`; trust `CF-Connecting-IP` only when the TCP peer is loopback/private.
+10. **Docs:** no performance number without a measured benchmark. Change the contract, env vars, module map or an invariant
+    ⇒ update this file and both READMEs in the same PR.
+
+## Decisions already made (do not relitigate without measurements)
+- Plain links `302`, everything else HTML. UA-based server `302` was rejected: the server cannot see iPadOS (desktop-class UA).
+- L2 Redis is optional; L1 + PostgreSQL is a supported mode. No compression layer (Cloudflare compresses at the edge); CORS off unless `CORS_ORIGINS` is set.
+- The guest JWT is a speed bump, not an identity. Legacy 32-char `xxh3` hashes coexist with new 64-char SHA-256 hashes (no backfill).
+
+## Frontend (`views/`)
+No build step, no JS toolchain, system fonts, light/dark through `prefers-color-scheme`. Keep both pages accessible (labels, focus rings,
+`aria-live`, contrast) and free of `innerHTML`: user text goes through `textContent` only. `redirect.html` must keep `location.replace`,
+iPadOS detection, the cancel-on-`visibilitychange`/`pagehide`/`blur` timer and the visible "Continue" link.
+
+## Commands
 ```bash
+docker compose up -d && cp .env.example .env   # Postgres 15 + Redis 7 for dev/tests (first run: copy env)
+cargo run                                      # applies migrations on boot (RUN_MIGRATIONS=true) → http://localhost:3000
 cargo fmt --check
-cargo clippy -- -D warnings
-cargo test
+cargo clippy --all-targets -- -D warnings
+cargo test                                     # router tests use real Postgres/Redis: keep compose up
 ```
+CI (`.github/workflows/ci.yml`) runs exactly these three checks with `postgres:15-alpine` and `redis:7-alpine`. Run them before every push.
 
----
+## Adding an endpoint
+1. Request type + normalization/validation in `links.rs` (new file only for a new responsibility).
+2. Thin handler in `handlers.rs` returning `Result<_, AppError>`; no `unwrap`.
+3. Route, body limit, rate-limit and auth layers in `handlers.rs::create_routes()`.
+4. Tests in `tests/` (HTTP status, JSON error shape, DB side effects); update the README API table.
 
-*Last Updated: 2025-12-28*
+## Git & PRs
+Branch from `main`, open small PRs against `main`. Conventional Commits: `feat|fix|refactor|perf|docs|test|ci|chore(scope): subject`.
+PR body: what changed, why, how verified (paste the three commands' result). Never commit `.env`, secrets or `target/`; never force-push `main`.

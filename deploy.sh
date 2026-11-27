@@ -1,27 +1,62 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-IMAGE_NAME="url-shortener"
-IMAGE_TAG="latest"
-INTERNAL_SERVER_PORT=3000
-EXTERNAL_SERVER_PORT=3000
+cd "$(dirname "$0")"
+name=url-shortener
+image="${IMAGE_NAME:-url-shortener}:$(git rev-parse --short HEAD)"
+network="${DOCKER_NETWORK:-lou2-net}"
+env_file="${ENV_FILE:-.env}"
+previous="${name}-previous"
+saved=false
+started=false
 
-# Build Docker image
-docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+rollback() {
+  if "$started"; then
+    docker logs --tail 50 "$name" >&2 || true
+    docker rm -f "$name" >/dev/null || true
+  fi
+  if "$saved"; then
+    if docker rename "$previous" "$name" && docker start "$name" >/dev/null; then
+      echo "Restored the previous container. Check database migration compatibility." >&2
+    else
+      echo "Could not restore the previous container." >&2
+    fi
+  fi
+}
 
-# Stop and remove existing container if running
-if docker ps -a | grep -q ${IMAGE_NAME}; then
-  docker stop ${IMAGE_NAME}
-  docker rm ${IMAGE_NAME}
+ready() {
+  docker exec "$name" sh -ec '
+    wget -q -T 2 -O /dev/null http://127.0.0.1:3000/health
+    wget -q -T 3 -O /dev/null http://127.0.0.1:3000/ready
+  ' >/dev/null 2>&1
+}
+
+docker network inspect "$network" >/dev/null
+test -r "$env_file"
+docker build -t "$image" .
+trap rollback ERR
+if docker container inspect "$name" >/dev/null 2>&1; then
+  if docker container inspect "$previous" >/dev/null 2>&1; then
+    docker rm "$previous" >/dev/null
+  fi
+  docker rename "$name" "$previous"
+  saved=true
+  docker stop -t 25 "$previous" >/dev/null
 fi
 
-# Run container
-docker run --name ${IMAGE_NAME} \
-  --env-file .env \
-  --cpus="1" \
-  --memory="512m" \
-  -d \
-  -p ${EXTERNAL_SERVER_PORT}:${INTERNAL_SERVER_PORT} \
-  --restart unless-stopped \
-  ${IMAGE_NAME}:${IMAGE_TAG}
+started=true
+docker run -d --name "$name" --network "$network" --env-file "$env_file" \
+  --cpus=1 --memory=512m --restart unless-stopped --stop-timeout 25 "$image" >/dev/null
 
-echo "Deployment complete. Container ${IMAGE_NAME} is running on port ${EXTERNAL_SERVER_PORT}"
+deadline=$((SECONDS + 60))
+until ready; do
+  if (( SECONDS >= deadline )); then
+    echo "Replacement container failed liveness or readiness checks." >&2
+    rollback
+    exit 1
+  fi
+  sleep 1
+done
+
+trap - ERR
+echo "$name is ready on $network."
