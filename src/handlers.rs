@@ -62,11 +62,14 @@ impl AppState {
 
 /// Builds the full HTTP router with write-scoped guards and global policy layers.
 pub fn create_routes(state: AppState, config: &Config) -> AppResult<Router> {
-    let writes = Router::new().route(
-        "/v1/urls",
-        post(create_link).route_layer(middleware::from_fn_with_state(state.clone(), verify_origin)),
-    );
-    let writes = limit_writes(writes, config, state.shutdown.clone())?;
+    // Run `verify_origin` outside `limit_writes` so rejected cross-origin requests
+    // return `403` without consuming the client's write rate-limit tokens.
+    let writes = limit_writes(
+        Router::new().route("/v1/urls", post(create_link)),
+        config,
+        state.shutdown.clone(),
+    )?
+    .route_layer(middleware::from_fn_with_state(state.clone(), verify_origin));
 
     let mut app = writes
         .route("/", get(index))
@@ -82,7 +85,8 @@ pub fn create_routes(state: AppState, config: &Config) -> AppResult<Router> {
     if !config.cors_origins.is_empty() {
         let cors = CorsLayer::new()
             .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-            .allow_headers([header::CONTENT_TYPE]);
+            .allow_headers([header::CONTENT_TYPE])
+            .expose_headers([header::RETRY_AFTER]);
         app = app.layer(if config.cors_origins.iter().any(|origin| origin == "*") {
             cors.allow_origin(Any)
         } else {

@@ -91,7 +91,7 @@ impl Config {
             .port(parse(&lookup, "DB_PORT", 5432)?)
             .username(&non_empty(&lookup, "DB_USER", "postgres"))
             .password(&lookup("DB_PASSWORD").unwrap_or_else(|| "postgres".into()))
-            .database(&non_empty(&lookup, "DB_NAME", "url_shortener"));
+            .database(&non_empty(&lookup, "DB_NAME", "postgres"));
 
         let sample_rate = parse(&lookup, "SENTRY_TRACES_SAMPLE_RATE", 0.1_f32)?;
         if !(0.0..=1.0).contains(&sample_rate) {
@@ -227,5 +227,6 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(cfg.bind.port(), 3000);
+        assert_eq!(cfg.postgres.get_database(), Some("postgres"));
     }
 }

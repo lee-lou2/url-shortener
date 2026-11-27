@@ -15,7 +15,7 @@ use std::{
 
 use axum::{
     extract::{ConnectInfo, Request, State},
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    http::{header, uri::Authority, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     Router,
@@ -58,7 +58,7 @@ impl OriginGuard {
     }
 
     /// Evaluates W3C Fetch Metadata (`Sec-Fetch-Site`) with `Origin`/`Host` fallback.
-    pub fn check(&self, method: &Method, headers: &HeaderMap) -> bool {
+    pub fn check(&self, method: &Method, headers: &HeaderMap, trusted_proxy: bool) -> bool {
         if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
             return true;
         }
@@ -77,14 +77,14 @@ impl OriginGuard {
         }
 
         // No `Sec-Fetch-Site`: non-browser clients omit `Origin` and pass through;
-        // older browsers that send `Origin` must match `Host` or `CORS_ORIGINS`.
+        // older browsers that send `Origin` must match `Host` (and proxy scheme) or `CORS_ORIGINS`.
         let Some(origin) = origin else {
             return true;
         };
         if self.is_allowed_origin(origin) {
             return true;
         }
-        origin_matches_host(origin, headers)
+        origin_matches_host(origin, headers, trusted_proxy)
     }
 }
 
@@ -99,22 +99,43 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a st
     first.to_str().map(Some).map_err(|_| ())
 }
 
-fn origin_matches_host(origin: &str, headers: &HeaderMap) -> bool {
+fn origin_matches_host(origin: &str, headers: &HeaderMap, trusted_proxy: bool) -> bool {
     let Ok(Some(host)) = single_header(headers, header::HOST.as_str()) else {
         return false;
     };
     let Ok(url) = url::Url::parse(origin) else {
         return false;
     };
-    if !matches!(url.scheme(), "http" | "https") {
-        return false;
+    let default_port = match url.scheme() {
+        "http" => 80_u16,
+        "https" => 443_u16,
+        _ => return false,
+    };
+    if trusted_proxy {
+        match single_header(headers, "x-forwarded-proto") {
+            Ok(Some(proto)) if !proto.eq_ignore_ascii_case(url.scheme()) => return false,
+            Err(()) => return false,
+            _ => {}
+        }
     }
     let Some(origin_host) = url.host_str() else {
         return false;
     };
-    match url.port() {
-        Some(port) => format!("{origin_host}:{port}").eq_ignore_ascii_case(host),
-        None => origin_host.eq_ignore_ascii_case(host),
+    let Ok(authority) = host.parse::<Authority>() else {
+        return false;
+    };
+    if authority.as_str().contains('@') {
+        return false;
+    }
+    let origin_port = url.port().unwrap_or(default_port);
+    let host_port = authority.port_u16().unwrap_or(default_port);
+    origin_host.eq_ignore_ascii_case(authority.host()) && origin_port == host_port
+}
+
+fn is_trusted_peer(peer: IpAddr) -> bool {
+    match peer.to_canonical() {
+        IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
+        IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local(),
     }
 }
 
@@ -123,7 +144,14 @@ pub(crate) async fn verify_origin(
     request: Request,
     next: Next,
 ) -> AppResult<Response> {
-    if !state.origin.check(request.method(), request.headers()) {
+    let trusted_proxy = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .is_some_and(|ConnectInfo(peer)| is_trusted_peer(peer.ip()));
+    if !state
+        .origin
+        .check(request.method(), request.headers(), trusted_proxy)
+    {
         return Err(AppError::Request(
             StatusCode::FORBIDDEN,
             "Cross-origin request rejected".into(),
@@ -132,7 +160,7 @@ pub(crate) async fn verify_origin(
     Ok(next.run(request).await)
 }
 
-/// Applies per-IP GCRA rate limiting to write routes and spawns periodic state pruning.
+/// Applies per-IP GCRA rate limiting to `POST` write routes and spawns periodic state pruning.
 pub(crate) fn limit_writes(
     routes: Router<AppState>,
     config: &Config,
@@ -144,6 +172,7 @@ pub(crate) fn limit_writes(
         .checked_div(config.rate_limit_per_second)
         .ok_or(AppError::Internal("Invalid rate limiter rate"))?;
     let limiter = GovernorConfigBuilder::default()
+        .methods(vec![Method::POST])
         .period(period)
         .burst_size(config.rate_limit_burst_size)
         .key_extractor(ClientIp)
@@ -178,12 +207,8 @@ impl KeyExtractor for ClientIp {
             return Ok(Ipv4Addr::LOCALHOST.into());
         };
         let peer = peer.ip().to_canonical();
-        let trusted = match peer {
-            IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
-            IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local(),
-        };
         let mut headers = request.headers().get_all("cf-connecting-ip").iter();
-        if trusted {
+        if is_trusted_peer(peer) {
             if let (Some(value), None) = (headers.next(), headers.next()) {
                 if let Some(client) = value
                     .to_str()
@@ -228,11 +253,11 @@ mod tests {
     fn fetch_metadata_blocks_cross_site_and_allows_same_origin_and_api_clients() {
         let strict = guard(&[]);
         // Non-browser client (no Sec-Fetch-Site, no Origin) passes.
-        assert!(strict.check(&Method::POST, &HeaderMap::new()));
+        assert!(strict.check(&Method::POST, &HeaderMap::new(), false));
 
         let mut same = HeaderMap::new();
         same.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
-        assert!(strict.check(&Method::POST, &same));
+        assert!(strict.check(&Method::POST, &same, false));
 
         let mut cross = HeaderMap::new();
         cross.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
@@ -240,7 +265,7 @@ mod tests {
             header::ORIGIN,
             HeaderValue::from_static("https://evil.test"),
         );
-        assert!(!strict.check(&Method::POST, &cross));
+        assert!(!strict.check(&Method::POST, &cross, false));
 
         // Explicit CORS allow-list permits trusted cross-site origin.
         let allowed = guard(&["https://app.example.com"]);
@@ -250,20 +275,28 @@ mod tests {
             header::ORIGIN,
             HeaderValue::from_static("https://app.example.com"),
         );
-        assert!(allowed.check(&Method::POST, &trusted));
-        assert!(!allowed.check(&Method::POST, &cross));
+        assert!(allowed.check(&Method::POST, &trusted, false));
+        assert!(!allowed.check(&Method::POST, &cross, false));
     }
 
     #[test]
-    fn origin_fallback_checks_host_for_older_browsers() {
+    fn origin_fallback_checks_host_port_and_proxy_scheme_for_older_browsers() {
         let strict = guard(&[]);
         let mut matching = HeaderMap::new();
         matching.insert(
             header::ORIGIN,
             HeaderValue::from_static("https://u.lou2.kr"),
         );
-        matching.insert(header::HOST, HeaderValue::from_static("u.lou2.kr"));
-        assert!(strict.check(&Method::POST, &matching));
+        matching.insert(header::HOST, HeaderValue::from_static("u.lou2.kr:443"));
+        matching.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        assert!(strict.check(&Method::POST, &matching, true));
+
+        // HTTP origin targeting an HTTPS proxy must be rejected.
+        let mut downgrade = HeaderMap::new();
+        downgrade.insert(header::ORIGIN, HeaderValue::from_static("http://u.lou2.kr"));
+        downgrade.insert(header::HOST, HeaderValue::from_static("u.lou2.kr"));
+        downgrade.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        assert!(!strict.check(&Method::POST, &downgrade, true));
 
         let mut mismatch = HeaderMap::new();
         mismatch.insert(
@@ -271,16 +304,16 @@ mod tests {
             HeaderValue::from_static("https://evil.test"),
         );
         mismatch.insert(header::HOST, HeaderValue::from_static("u.lou2.kr"));
-        assert!(!strict.check(&Method::POST, &mismatch));
+        assert!(!strict.check(&Method::POST, &mismatch, false));
 
         let mut null_origin = HeaderMap::new();
         null_origin.insert(header::ORIGIN, HeaderValue::from_static("null"));
         null_origin.insert(header::HOST, HeaderValue::from_static("u.lou2.kr"));
-        assert!(!strict.check(&Method::POST, &null_origin));
+        assert!(!strict.check(&Method::POST, &null_origin, false));
 
         let mut duplicate = HeaderMap::new();
         duplicate.append("sec-fetch-site", HeaderValue::from_static("same-origin"));
         duplicate.append("sec-fetch-site", HeaderValue::from_static("cross-site"));
-        assert!(!strict.check(&Method::POST, &duplicate));
+        assert!(!strict.check(&Method::POST, &duplicate, false));
     }
 }

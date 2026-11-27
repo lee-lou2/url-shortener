@@ -437,19 +437,69 @@ async fn l1_cache_serves_link_after_db_row_removed() {
 
 #[tokio::test]
 async fn write_rate_limit_scopes_to_create_and_leaves_reads_unthrottled() {
-    let app = app("2").await;
+    let app = app_with("2", Some("https://app.example.com")).await;
     let payload = json!({"defaultFallbackUrl": destination()}).to_string();
+
+    // Rejected cross-origin POSTs and unsupported methods must not consume write quota.
+    for _ in 0..5 {
+        let blocked = app
+            .post(
+                payload.clone(),
+                &[
+                    ("sec-fetch-site", "cross-site"),
+                    ("origin", "https://evil.test"),
+                ],
+            )
+            .await;
+        assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            app.get("/v1/urls").await.status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
+
     assert_eq!(
-        app.post(payload.clone(), &[]).await.status(),
+        app.post(
+            payload.clone(),
+            &[
+                ("sec-fetch-site", "cross-site"),
+                ("origin", "https://app.example.com"),
+            ],
+        )
+        .await
+        .status(),
         StatusCode::CREATED
     );
     assert_eq!(
-        app.post(payload.clone(), &[]).await.status(),
+        app.post(
+            payload.clone(),
+            &[
+                ("sec-fetch-site", "cross-site"),
+                ("origin", "https://app.example.com"),
+            ],
+        )
+        .await
+        .status(),
         StatusCode::OK
     );
-    let limited = app.post(payload, &[]).await;
+    let limited = app
+        .post(
+            payload,
+            &[
+                ("sec-fetch-site", "cross-site"),
+                ("origin", "https://app.example.com"),
+            ],
+        )
+        .await;
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
     assert!(limited.headers().contains_key(header::RETRY_AFTER));
+    assert_eq!(
+        limited
+            .headers()
+            .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+            .and_then(|v| v.to_str().ok()),
+        Some("retry-after")
+    );
     assert_eq!(body(limited).await, json!({"error": "Too many requests"}));
 
     // Index page, probes, and redirects remain unaffected.

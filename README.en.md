@@ -160,9 +160,9 @@ Empty strings count as absent. Success: `201` (`created: true`) or `200` (`creat
 
 ## Performance
 
-Measured on a single worker thread (`TOKIO_WORKER_THREADS=1`) on local macOS (Apple Silicon) against PostgreSQL 15.19 (**1,000,000 rows**, ~85% plain + ~15% OG/deep-link) using the same compiled Rust HTTP/1.1 keep-alive harness before (`main` + Redis) and after (L1 `moka` + PostgreSQL); absolute throughput on a 1 CPU / 512 MB Linux container will differ.
+Measured on a single worker thread (`TOKIO_WORKER_THREADS=1`) on local macOS (Apple Silicon) against PostgreSQL 15.19 (**1,000,000 rows**, ~85% plain + ~15% OG/deep-link) using the same compiled Rust HTTP/1.1 keep-alive harness comparing v1 (pre-redesign + Redis L2) against the current L1 `moka` + PostgreSQL design; absolute throughput on a 1 CPU / 512 MB Linux container will differ.
 
-| Experiment | Before (`main`) | After (L1 + PG) | Improvement |
+| Experiment | v1 (pre-redesign) | Current (L1 + PG) | Improvement |
 |------------|----------------:|----------------:|-------------|
 | PostgreSQL indexes (1M rows) | 5 indexes (**129.8 MB**) | 2 indexes (**78.0 MB**) | **-39.9%** (redundant dropped) |
 | 10k bulk `INSERT` / WAL | 63.5k rows/s · 4.10 MB | **119.8k rows/s · 1.76 MB** | **1.89× · -57.1% WAL** |

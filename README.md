@@ -160,9 +160,9 @@ curl -s https://u.lou2.kr/v1/urls \
 
 ## 성능
 
-단일 CPU 워커(`TOKIO_WORKER_THREADS=1`), 로컬 macOS(Apple Silicon)의 PostgreSQL 15.19(**100만 행**, 일반 링크 ~85% + OG/딥링크 ~15%) 환경에서 리디자인 전(`main` + Redis)과 후(L1 전용 `moka` + PostgreSQL)를 동일 하네스로 실측한 결과입니다(운영 Linux 컨테이너 절대치와는 다를 수 있습니다).
+단일 CPU 워커(`TOKIO_WORKER_THREADS=1`), 로컬 macOS(Apple Silicon)의 PostgreSQL 15.19(**100만 행**, 일반 링크 ~85% + OG/딥링크 ~15%) 환경에서 초기 v1(리디자인 전 · Redis L2)과 현재(L1 전용 `moka` + PostgreSQL)를 동일 하네스로 실측한 결과입니다(운영 Linux 컨테이너 절대치와는 다를 수 있습니다).
 
-| 항목 | 개선 전 (`main`) | 개선 후 (L1 + PG) | 변화 |
+| 항목 | v1 (리디자인 전) | 현재 (L1 + PG) | 변화 |
 |------|------------------:|------------------:|------|
 | PostgreSQL 인덱스 (100만 행) | 5개 (**129.8 MB**) | 2개 (**78.0 MB**) | **-39.9%** (중복 제거) |
 | 10,000건 벌크 `INSERT` / WAL | 63.5k rows/s · 4.10 MB | **119.8k rows/s · 1.76 MB** | **1.89배 · WAL -57.1%** |
