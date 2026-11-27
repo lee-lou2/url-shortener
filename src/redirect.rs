@@ -11,6 +11,7 @@ use url::Url;
 use crate::{
     error::{AppError, AppResult},
     links::{deep_link, web_url, webhook_url, LinkRecord},
+    short_key::RandomKey,
 };
 
 pub(crate) const INDEX_HTML: &str = include_str!("../views/index.html");
@@ -30,7 +31,7 @@ pub struct RedirectPage<'a> {
 }
 
 pub(crate) struct CachedLink {
-    pub random_key: [u8; 4],
+    pub random_key: RandomKey,
     pub webhook_url: Option<Url>,
     payload: RedirectPayload,
 }
@@ -42,7 +43,7 @@ enum RedirectPayload {
 
 impl CachedLink {
     pub fn compile(record: &LinkRecord) -> AppResult<Option<Self>> {
-        let Ok(random_key) = <[u8; 4]>::try_from(record.random_key.as_bytes()) else {
+        let Some(random_key) = RandomKey::from_stored(&record.random_key) else {
             return Ok(None);
         };
         let fields = &record.fields;

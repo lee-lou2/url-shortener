@@ -35,7 +35,7 @@ Other: `views/index.html` (served verbatim), `views/redirect.html` (Askama `Redi
 ## Invariants (never break)
 1. **Migrations:** never edit an applied file (SQLx checksums). Schema change = new migration;
    `CONCURRENTLY` = one statement per `-- no-transaction` file.
-2. **Short key:** length `5..=15`, ASCII alphanumeric, alphabet `0-9A-Za-z`, id part never starts with `'0'`, `1 <= id <= i64::MAX`,
+2. **Short key:** current v1 length `5..=15` (`prefix(2)+base62(id)+suffix(2)`) plus legacy 2-char `random_key` length `3..=4` (`prefix(1)+base62(id)+suffix(1)`), ASCII alphanumeric `0-9A-Za-z`, id part never starts with `'0'`, `1 <= id <= i64::MAX`,
    parsed before any cache/DB call. Anything invalid → `404 {"error":"URL not found"}` (also `/favicon.ico`, `/robots.txt`).
 3. **Contract:** `GET /`, `POST /v1/urls`, `GET /{short_key}`, `GET /health`, `GET /ready`. Request fields are camelCase;
    response is `{message, short_key, created}` (`201` new, `200` existing); errors are `{"error": "..."}`.

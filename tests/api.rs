@@ -299,7 +299,7 @@ async fn plain_redirect_uses_location_header() {
         response.headers()[header::CACHE_CONTROL],
         "private, no-cache"
     );
-    assert!(text(response).await.is_empty());
+    assert_eq!(text(response).await, "");
     app.finish().await;
 }
 
@@ -328,12 +328,16 @@ async fn existing_keys_resolve_and_unsafe_legacy_rows_are_blocked() {
     let app = app("20", None).await;
     sqlx::query(
         "INSERT INTO urls (id, random_key, default_fallback_url, hashed_value)
-        VALUES (12345, 'AbXy', 'https://example.com/existing-key', 'fixture-old-hash')
+        VALUES
+            (132, 'AZ', 'https://example.com/legacy-2char', 'fixture-legacy-2char-hash'),
+            (12345, 'AbXy', 'https://example.com/existing-key', 'fixture-old-hash')
         ON CONFLICT (id) DO NOTHING",
     )
     .execute(&app.db)
     .await
     .unwrap();
+    assert_eq!(app.get("/A28Z").await.status(), StatusCode::FOUND);
+    assert_eq!(app.get("/A28X").await.status(), StatusCode::NOT_FOUND);
     assert_eq!(app.get("/Ab3D7Xy").await.status(), StatusCode::FOUND);
     assert_eq!(app.get("/Ab3D7XY").await.status(), StatusCode::NOT_FOUND);
     let unsafe_key = app
@@ -373,7 +377,8 @@ async fn malformed_paths_return_json_not_found() {
     for path in [
         "/favicon.ico",
         "/robots.txt",
-        "/abc",
+        "/ab",
+        "/A0Z",
         "/Ab00001Xy",
         "/Ab000000000001Xy",
         "/%FF",

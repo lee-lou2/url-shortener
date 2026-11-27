@@ -2,13 +2,45 @@ use rand::distributions::{Alphanumeric, DistString};
 
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-pub fn parse_short_key(key: &str) -> Option<(i64, [u8; 4])> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RandomKey {
+    V1([u8; 4]),
+    Legacy([u8; 2]),
+}
+
+impl RandomKey {
+    pub fn from_stored(raw: &str) -> Option<Self> {
+        let bytes = raw.as_bytes();
+        if !bytes.iter().all(u8::is_ascii_alphanumeric) {
+            return None;
+        }
+        match bytes {
+            [a, b, c, d] => Some(Self::V1([*a, *b, *c, *d])),
+            [a, b] => Some(Self::Legacy([*a, *b])),
+            _ => None,
+        }
+    }
+}
+
+pub fn parse_short_key(key: &str) -> Option<(i64, RandomKey)> {
     let bytes = key.as_bytes();
-    if !(5..=15).contains(&bytes.len()) || !bytes.iter().all(u8::is_ascii_alphanumeric) {
+    if !bytes.iter().all(u8::is_ascii_alphanumeric) {
         return None;
     }
-    let end = bytes.len() - 2;
-    let middle = &bytes[2..end];
+    let (middle, random_key) = match bytes.len() {
+        5..=15 => {
+            let end = bytes.len() - 2;
+            (
+                &bytes[2..end],
+                RandomKey::V1([bytes[0], bytes[1], bytes[end], bytes[end + 1]]),
+            )
+        }
+        3..=4 => {
+            let end = bytes.len() - 1;
+            (&bytes[1..end], RandomKey::Legacy([bytes[0], bytes[end]]))
+        }
+        _ => return None,
+    };
     if middle.first() == Some(&b'0') {
         return None;
     }
@@ -22,28 +54,32 @@ pub fn parse_short_key(key: &str) -> Option<(i64, [u8; 4])> {
         };
         id = id.checked_mul(62)?.checked_add(i64::from(digit))?;
     }
-    Some((id, [bytes[0], bytes[1], bytes[end], bytes[end + 1]]))
+    Some((id, random_key))
 }
 
 pub fn encode_short_key(id: i64, random_key: &str) -> Option<String> {
-    let key: &[u8; 4] = random_key.as_bytes().try_into().ok()?;
-    if id <= 0 || !key.iter().all(u8::is_ascii_alphanumeric) {
+    let key = RandomKey::from_stored(random_key)?;
+    if id <= 0 {
         return None;
     }
 
-    let mut id = u64::try_from(id).ok()?;
+    let mut value = u64::try_from(id).ok()?;
     let mut buf = [0_u8; 11];
     let mut start = buf.len();
-    while id > 0 {
+    while value > 0 {
         start -= 1;
-        let digit = usize::try_from(id % 62).ok()?;
+        let digit = usize::try_from(value % 62).ok()?;
         buf[start] = ALPHABET[digit];
-        id /= 62;
+        value /= 62;
     }
-    let mut result = String::with_capacity(4 + buf.len() - start);
-    result.extend(key[..2].iter().copied().map(char::from));
+    let (prefix, suffix): (&[u8], &[u8]) = match &key {
+        RandomKey::V1(bytes) => (&bytes[..2], &bytes[2..]),
+        RandomKey::Legacy(bytes) => (&bytes[..1], &bytes[1..]),
+    };
+    let mut result = String::with_capacity(prefix.len() + suffix.len() + buf.len() - start);
+    result.extend(prefix.iter().copied().map(char::from));
     result.extend(buf[start..].iter().copied().map(char::from));
-    result.extend(key[2..].iter().copied().map(char::from));
+    result.extend(suffix.iter().copied().map(char::from));
     Some(result)
 }
 
@@ -65,7 +101,11 @@ mod tests {
             (i64::MAX, "AbAzL8n0Y58m7Xy"),
         ] {
             assert_eq!(encode_short_key(id, "AbXy").as_deref(), Some(key));
-            assert_eq!(parse_short_key(key), Some((id, *b"AbXy")));
+            assert_eq!(parse_short_key(key), Some((id, RandomKey::V1(*b"AbXy"))));
+        }
+        for (id, key) in [(1, "A1Z"), (61, "AzZ"), (132, "A28Z")] {
+            assert_eq!(encode_short_key(id, "AZ").as_deref(), Some(key));
+            assert_eq!(parse_short_key(key), Some((id, RandomKey::Legacy(*b"AZ"))));
         }
     }
 
@@ -82,14 +122,19 @@ mod tests {
                 encode_short_key(id, "AbXy").as_deref(),
                 Some(expected.as_str())
             );
-            assert_eq!(parse_short_key(&expected), Some((id, *b"AbXy")));
+            assert_eq!(
+                parse_short_key(&expected),
+                Some((id, RandomKey::V1(*b"AbXy")))
+            );
         }
     }
 
     #[test]
     fn malformed_keys_never_decode() {
         for key in [
-            "abc",
+            "ab",
+            "A0Z",
+            "A01Z",
             "Ab0Xy",
             "Ab0001Xy",
             "AbAzL8n0Y58m8Xy",
