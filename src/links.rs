@@ -1,3 +1,9 @@
+//! Link normalization, allow-list validation, 9-field SHA-256 deduplication,
+//! and PostgreSQL queries.
+//!
+//! `create_or_find` runs `SELECT` before `INSERT ... ON CONFLICT DO NOTHING` so
+//! duplicate submissions burn zero `urls_id_seq` values while staying race-safe.
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};

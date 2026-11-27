@@ -1,3 +1,9 @@
+//! Two-mode redirect compilation (`302 Found` vs pre-rendered HTML `Bytes`)
+//! and startup SHA-256 `Content-Security-Policy` computation for `views/`.
+//!
+//! Every cached row is re-validated against the `http`/`https` allow-list on
+//! compile so legacy rows predating strict validation cannot smuggle `javascript:`.
+
 use askama::Template;
 use axum::{
     body::Bytes,

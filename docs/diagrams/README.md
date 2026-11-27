@@ -9,6 +9,6 @@ Editorial diagrams generated following [`cathrynlavery/diagram-design`](https://
 | Short Key Generation | Pipeline | [short-key-encoding.png](short-key-encoding.png) | [short-key-encoding-dark.png](short-key-encoding-dark.png) | [light](src/short-key-encoding.html) · [dark](src/short-key-encoding-dark.html) |
 | URL Redirect Flow (`GET /{short_key}`) | Sequence | [url-redirect-flow.png](url-redirect-flow.png) | [url-redirect-flow-dark.png](url-redirect-flow-dark.png) | [light](src/url-redirect-flow.html) · [dark](src/url-redirect-flow-dark.html) |
 | Platform-Specific Redirect | Flowchart | [platform-redirect.png](platform-redirect.png) | [platform-redirect-dark.png](platform-redirect-dark.png) | [light](src/platform-redirect.html) · [dark](src/platform-redirect-dark.html) |
-| Two-Tier Cache Strategy | Architecture | [caching-strategy.png](caching-strategy.png) | [caching-strategy-dark.png](caching-strategy-dark.png) | [light](src/caching-strategy.html) · [dark](src/caching-strategy-dark.html) |
+| In-Process L1 Cache Strategy | Architecture | [caching-strategy.png](caching-strategy.png) | [caching-strategy-dark.png](caching-strategy-dark.png) | [light](src/caching-strategy.html) · [dark](src/caching-strategy-dark.html) |
 
 Each `.html` file under `src/` is self-contained (inline SVG + embedded CSS) and serves as the source of truth for the `@2` retina `.png` exports embedded in the README and developer guides.

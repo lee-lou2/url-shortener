@@ -1,3 +1,6 @@
+//! Binary entrypoint: loads `.env`, initializes tracing/Sentry, runs embedded
+//! `SQLx` migrations, and serves the Axum router with graceful shutdown.
+
 use std::{net::SocketAddr, time::Duration};
 
 use tokio::net::TcpListener;
@@ -37,6 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db = config.connect_db().await?;
     if config.run_migrations {
+        // Guard against an interrupted CONCURRENTLY index build leaving an invalid index.
         let invalid_index: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_index
              WHERE indexrelid = to_regclass('idx_urls_hashed_value_active_unique')
@@ -52,10 +56,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         sqlx::migrate!().run(&db).await?;
     }
-    let state = AppState::new(db, &config).await?;
+
+    let state = AppState::new(db, &config)?;
     let listener = TcpListener::bind(config.bind).await?;
     let routes = create_routes(state.clone(), &config)?;
     tracing::info!(address = %listener.local_addr()?, "URL shortener listening");
+
     let result = axum::serve(
         listener,
         routes.into_make_service_with_connect_info::<SocketAddr>(),

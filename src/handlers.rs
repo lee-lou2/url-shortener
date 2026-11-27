@@ -1,3 +1,5 @@
+//! Shared application state, Axum router assembly, and thin HTTP handlers.
+
 use std::{sync::Arc, time::Duration};
 
 use axum::{
@@ -17,19 +19,20 @@ use tower_http::{
 };
 
 use crate::{
-    auth::{authenticate, limit_writes, Auth},
     cache::LinkCache,
     config::Config,
     error::{json_error, ApiJson, AppError, AppResult},
+    guard::{limit_writes, verify_origin, OriginGuard},
     links::{self, LinkFields, LinkRecord},
     redirect::{PagePolicies, INDEX_HTML},
     short_key::{encode_short_key, parse_short_key},
     webhook::Webhooks,
 };
 
+/// Cloneable state shared across handlers (zero process-global mutable statics).
 #[derive(Clone)]
 pub struct AppState {
-    pub(crate) auth: Arc<Auth>,
+    pub(crate) origin: Arc<OriginGuard>,
     db: sqlx::PgPool,
     cache: LinkCache,
     pages: Arc<PagePolicies>,
@@ -38,40 +41,35 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(db: sqlx::PgPool, config: &Config) -> AppResult<Self> {
+    pub fn new(db: sqlx::PgPool, config: &Config) -> AppResult<Self> {
         Ok(Self {
             db,
-            auth: Arc::new(Auth::new(
-                config.jwt_secret.as_bytes(),
-                config.jwt_ttl,
-                config.production,
-            )),
+            origin: Arc::new(OriginGuard::from_config(config)),
             pages: Arc::new(PagePolicies::new()?),
             webhooks: Webhooks::new()
                 .map_err(|_| AppError::Internal("Unable to create webhook client"))?,
-            cache: LinkCache::new(config.cache_max_capacity_bytes, config.redis.clone())
-                .await
-                .map_err(|_| AppError::Internal("Invalid Redis client configuration"))?,
+            cache: LinkCache::new(config.cache_max_capacity_bytes),
             shutdown: CancellationToken::new(),
         })
     }
 
+    /// Cancels background tasks, drains in-flight webhooks (≤ 5 s), and closes Postgres.
     pub async fn shutdown(&self) {
         self.shutdown.cancel();
         tokio::join!(self.webhooks.drain(), self.db.close());
     }
 }
 
+/// Builds the full HTTP router with write-scoped guards and global policy layers.
 pub fn create_routes(state: AppState, config: &Config) -> AppResult<Router> {
-    let writes = Router::new()
-        .route(
-            "/v1/urls",
-            post(create_link)
-                .route_layer(middleware::from_fn_with_state(state.clone(), authenticate)),
-        )
-        .route("/", get(index));
+    let writes = Router::new().route(
+        "/v1/urls",
+        post(create_link).route_layer(middleware::from_fn_with_state(state.clone(), verify_origin)),
+    );
     let writes = limit_writes(writes, config, state.shutdown.clone())?;
+
     let mut app = writes
+        .route("/", get(index))
         .route("/health", get(health))
         .route("/ready", get(readiness))
         .route("/{short_key}", get(redirect))
@@ -80,16 +78,18 @@ pub fn create_routes(state: AppState, config: &Config) -> AppResult<Router> {
             json_error(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed")
         })
         .with_state(state);
+
     if !config.cors_origins.is_empty() {
         let cors = CorsLayer::new()
-            .allow_methods([Method::GET, Method::POST])
-            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers([header::CONTENT_TYPE]);
         app = app.layer(if config.cors_origins.iter().any(|origin| origin == "*") {
             cors.allow_origin(Any)
         } else {
             cors.allow_origin(config.cors_origins.clone())
         });
     }
+
     Ok(app
         .layer(DefaultBodyLimit::max(32 * 1024))
         .layer(middleware::from_fn(http_policy))
@@ -107,17 +107,14 @@ async fn http_policy(request: Request, next: Next) -> Response {
     response
 }
 
-async fn index(State(state): State<AppState>) -> AppResult<impl IntoResponse> {
-    let cookie = HeaderValue::from_str(&state.auth.guest_cookie()?)
-        .map_err(|_| AppError::Internal("Invalid Set-Cookie header"))?;
-    Ok((
+async fn index(State(state): State<AppState>) -> impl IntoResponse {
+    (
         [
-            (header::SET_COOKIE, cookie),
             (header::CONTENT_SECURITY_POLICY, state.pages.index.clone()),
-            (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
         ],
         Html(INDEX_HTML),
-    ))
+    )
 }
 
 #[derive(Serialize)]
@@ -177,6 +174,7 @@ async fn redirect(
         })?
         .filter(|link| link.random_key == random_key)
         .ok_or_else(AppError::not_found)?;
+
     if let Some(url) = &link.webhook_url {
         if method == Method::GET {
             let user_agent = headers
@@ -194,20 +192,20 @@ async fn health() -> Json<serde_json::Value> {
 }
 
 async fn readiness(State(state): State<AppState>) -> impl IntoResponse {
-    let (db, cache) = tokio::join!(
-        tokio::time::timeout(
-            Duration::from_secs(2),
-            sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.db)
-        ),
-        state.cache.status(),
-    );
-    let (code, status, database) = match (db, cache) {
-        (Ok(Ok(1)), "disconnected") => (StatusCode::OK, "degraded", "connected"),
-        (Ok(Ok(1)), _) => (StatusCode::OK, "ok", "connected"),
-        _ => (StatusCode::SERVICE_UNAVAILABLE, "error", "disconnected"),
-    };
-    (
-        code,
-        Json(serde_json::json!({"status": status, "database": database, "cache": cache})),
+    let db = tokio::time::timeout(
+        Duration::from_secs(2),
+        sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.db),
     )
+    .await;
+    if matches!(db, Ok(Ok(1))) {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"status": "ok", "database": "connected"})),
+        )
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"status": "error", "database": "disconnected"})),
+        )
+    }
 }

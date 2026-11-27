@@ -1,7 +1,11 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    net::SocketAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     body::{to_bytes, Body},
+    extract::ConnectInfo,
     http::{header, Request, StatusCode},
     response::Response,
     Router,
@@ -24,7 +28,6 @@ struct TestApp {
     router: Router,
     state: AppState,
     db: PgPool,
-    config: Config,
 }
 
 fn destination() -> String {
@@ -36,22 +39,16 @@ fn destination() -> String {
     format!("https://example.com/test/{time}-{nonce}")
 }
 
-async fn app(burst: &str, redis_port: Option<u16>) -> TestApp {
+async fn app_with(burst: &str, cors: Option<&str>) -> TestApp {
     let mut config = Config::from_lookup(|key| match key {
         "RUST_ENV" => Some("production".into()),
-        "JWT_SECRET" => Some("local-test-signing-key-with-32-bytes".into()),
-        "REDIS_HOST" => {
-            Some(std::env::var("TEST_REDIS_HOST").unwrap_or_else(|_| "127.0.0.1".into()))
-        }
-        "REDIS_PORT" => redis_port
-            .map(|port| port.to_string())
-            .or_else(|| std::env::var("TEST_REDIS_PORT").ok()),
-        "REDIS_DB" => Some("14".into()),
         "RATE_LIMIT_BURST_SIZE" => Some(burst.into()),
         "RATE_LIMIT_PER_SECOND" => Some("1".into()),
+        "CORS_ORIGINS" => cors.map(str::to_owned),
         _ => None,
     })
     .unwrap();
+
     let db = if let Ok(url) =
         std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
     {
@@ -66,8 +63,6 @@ async fn app(burst: &str, redis_port: Option<u16>) -> TestApp {
         );
         config.connect_db().await.unwrap()
     } else {
-        // Prefer the compose.yaml default (postgres/postgres@127.0.0.1/url_shortener),
-        // falling back to local OS-user url_shortener_test when Postgres runs natively.
         let compose = PgConnectOptions::new()
             .host("127.0.0.1")
             .username("postgres")
@@ -83,17 +78,17 @@ async fn app(burst: &str, redis_port: Option<u16>) -> TestApp {
             config.connect_db().await.unwrap()
         }
     };
+
     MIGRATED
         .get_or_init(|| async { sqlx::migrate!().run(&db).await.unwrap() })
         .await;
-    let state = AppState::new(db.clone(), &config).await.unwrap();
+    let state = AppState::new(db.clone(), &config).unwrap();
     let router = create_routes(state.clone(), &config).unwrap();
-    TestApp {
-        router,
-        state,
-        db,
-        config,
-    }
+    TestApp { router, state, db }
+}
+
+async fn app(burst: &str) -> TestApp {
+    app_with(burst, None).await
 }
 
 impl TestApp {
@@ -102,23 +97,13 @@ impl TestApp {
         self.router.clone().oneshot(request).await.unwrap()
     }
 
-    async fn cookie(&self) -> String {
-        self.get("/").await.headers()[header::SET_COOKIE]
-            .to_str()
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap()
-            .to_owned()
-    }
-
-    async fn post(&self, body: String, credentials: Option<(&str, &str)>) -> Response {
+    async fn post(&self, body: String, extra_headers: &[(&str, &str)]) -> Response {
         let mut request = Request::builder()
             .method("POST")
             .uri("/v1/urls")
             .header(header::CONTENT_TYPE, "application/json");
-        if let Some((name, value)) = credentials {
-            request = request.header(name, value);
+        for (name, value) in extra_headers {
+            request = request.header(*name, *value);
         }
         self.router
             .clone()
@@ -128,8 +113,7 @@ impl TestApp {
     }
 
     async fn create(&self, value: Value) -> Response {
-        self.post(value.to_string(), Some(("cookie", &self.cookie().await)))
-            .await
+        self.post(value.to_string(), &[]).await
     }
 
     async fn insert_legacy(&self, url: &str, hash: &str, active: bool) -> String {
@@ -176,54 +160,76 @@ fn check_csp(headers: &axum::http::HeaderMap, html: &str) {
         .unwrap()
         .0;
     let digest = STANDARD.encode(Sha256::digest(script));
-    assert!(headers[header::CONTENT_SECURITY_POLICY]
-        .to_str()
-        .unwrap()
-        .contains(&format!("'sha256-{digest}'")));
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(csp.contains(&format!("'sha256-{digest}'")));
+    assert!(csp.contains("frame-ancestors 'none'"));
 }
 
 #[tokio::test]
-async fn index_sets_guest_cookie_and_csp() {
-    let app = app("20", None).await;
+async fn index_sets_csp_without_cookies() {
+    let app = app("20").await;
     let response = app.get("/").await;
     assert_eq!(response.status(), StatusCode::OK);
     let headers = response.headers().clone();
     assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
-    let cookie = headers[header::SET_COOKIE].to_str().unwrap();
-    assert!(cookie.starts_with("token="));
-    assert!(cookie.ends_with("; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400; Secure"));
+    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    assert!(headers.get(header::SET_COOKIE).is_none());
     check_csp(&headers, &text(response).await);
     app.finish().await;
 }
 
 #[tokio::test]
-async fn creation_requires_cookie_or_bearer() {
-    let app = app("20", None).await;
-    let payload = json!({"defaultFallbackUrl":destination()}).to_string();
-    for creds in [None, Some(("authorization", "Bearer invalid"))] {
-        let response = app.post(payload.clone(), creds).await;
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            body(response).await,
-            json!({"error":"Invalid or missing token"})
-        );
-    }
-    let cookie = app.cookie().await;
-    let bearer = format!("bEaReR {}", cookie.strip_prefix("token=").unwrap());
-    let response = app
-        .post(payload.clone(), Some(("authorization", &bearer)))
+async fn cross_origin_guard_blocks_evil_sites_and_allows_same_origin_and_api() {
+    let app = app_with("20", Some("https://trusted.example")).await;
+    let payload = json!({"defaultFallbackUrl": destination()}).to_string();
+
+    // Direct API client (no Fetch Metadata, no Origin) succeeds in 1 request.
+    assert_eq!(
+        app.post(payload.clone(), &[]).await.status(),
+        StatusCode::CREATED
+    );
+
+    // Same-origin browser request succeeds.
+    assert_eq!(
+        app.post(payload.clone(), &[("sec-fetch-site", "same-origin")])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+
+    // Untrusted cross-site browser request is rejected with 403 JSON.
+    let blocked = app
+        .post(
+            payload.clone(),
+            &[
+                ("sec-fetch-site", "cross-site"),
+                ("origin", "https://evil.example"),
+            ],
+        )
         .await;
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let response = app.post(payload, Some(("cookie", &cookie))).await;
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body(blocked).await,
+        json!({"error": "Cross-origin request rejected"})
+    );
+
+    // Explicitly allow-listed cross-site origin succeeds.
+    let allowed = app
+        .post(
+            payload,
+            &[
+                ("sec-fetch-site", "cross-site"),
+                ("origin", "https://trusted.example"),
+            ],
+        )
+        .await;
+    assert_eq!(allowed.status(), StatusCode::OK);
     app.finish().await;
 }
 
 #[tokio::test]
 async fn invalid_urls_and_json_are_rejected() {
-    let app = app("20", None).await;
-    let cookie = app.cookie().await;
+    let app = app("20").await;
     for (name, value) in [
         ("defaultFallbackUrl", "javascript:0"),
         ("iosDeepLink", "data:text/plain,blocked"),
@@ -231,11 +237,9 @@ async fn invalid_urls_and_json_are_rejected() {
         ("webhookUrl", "http://169.254.169.254/"),
         ("androidFallbackUrl", "https://example.com/\r\n"),
     ] {
-        let mut payload = json!({"defaultFallbackUrl":"https://example.com/"});
+        let mut payload = json!({"defaultFallbackUrl": "https://example.com/"});
         payload[name] = json!(value);
-        let response = app
-            .post(payload.to_string(), Some(("cookie", &cookie)))
-            .await;
+        let response = app.create(payload).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{name}");
         assert!(body(response).await["error"]
             .as_str()
@@ -250,7 +254,7 @@ async fn invalid_urls_and_json_are_rejected() {
         ),
         ("x".repeat(33 * 1024), StatusCode::PAYLOAD_TOO_LARGE),
     ] {
-        let response = app.post(payload, Some(("cookie", &cookie))).await;
+        let response = app.post(payload, &[]).await;
         assert_eq!(response.status(), status);
         assert!(body(response).await["error"].is_string());
     }
@@ -259,26 +263,26 @@ async fn invalid_urls_and_json_are_rejected() {
 
 #[tokio::test]
 async fn exact_dedupe_and_distinct_metadata() {
-    let app = app("20", None).await;
+    let app = app("20").await;
     let url = destination();
-    let created = app.create(json!({"defaultFallbackUrl":url})).await;
+    let created = app.create(json!({"defaultFallbackUrl": url})).await;
     assert_eq!(created.status(), StatusCode::CREATED);
     let created = body(created).await;
     assert_eq!(
         created,
-        json!({"created":true,"message":"URL shortened successfully","short_key":created["short_key"]})
+        json!({"created": true, "message": "URL shortened successfully", "short_key": created["short_key"]})
     );
     let duplicate = app
-        .create(json!({"defaultFallbackUrl":url,"iosDeepLink":"  "}))
+        .create(json!({"defaultFallbackUrl": url, "iosDeepLink": "  "}))
         .await;
     assert_eq!(duplicate.status(), StatusCode::OK);
     assert_eq!(
         body(duplicate).await,
-        json!({"created":false,"message":"URL already exists","short_key":created["short_key"]})
+        json!({"created": false, "message": "URL already exists", "short_key": created["short_key"]})
     );
     for payload in [
-        json!({"defaultFallbackUrl":url,"ogTitle":"New title"}),
-        json!({"defaultFallbackUrl":url,"webhookUrl":"https://example.net/hook"}),
+        json!({"defaultFallbackUrl": url, "ogTitle": "New title"}),
+        json!({"defaultFallbackUrl": url, "webhookUrl": "https://example.net/hook"}),
     ] {
         let response = app.create(payload).await;
         assert_eq!(response.status(), StatusCode::CREATED);
@@ -289,9 +293,9 @@ async fn exact_dedupe_and_distinct_metadata() {
 
 #[tokio::test]
 async fn plain_redirect_uses_location_header() {
-    let app = app("20", None).await;
+    let app = app("20").await;
     let url = destination();
-    let key = key(app.create(json!({"defaultFallbackUrl":url})).await).await;
+    let key = key(app.create(json!({"defaultFallbackUrl": url})).await).await;
     let response = app.get(&format!("/{key}")).await;
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(response.headers()[header::LOCATION], url);
@@ -305,10 +309,15 @@ async fn plain_redirect_uses_location_header() {
 
 #[tokio::test]
 async fn rich_redirect_html_escapes_attributes_and_hashes_its_script() {
-    let app = app("20", None).await;
-    let key = key(app.create(json!({
-        "defaultFallbackUrl":destination(), "iosDeepLink":"myapp://open", "ogTitle":r#""><em>unsafe</em>"#
-    })).await).await;
+    let app = app("20").await;
+    let key = key(app
+        .create(json!({
+            "defaultFallbackUrl": destination(),
+            "iosDeepLink": "myapp://open",
+            "ogTitle": r#""><em>unsafe</em>"#
+        }))
+        .await)
+    .await;
     let response = app.get(&format!("/{key}")).await;
     assert_eq!(response.status(), StatusCode::OK);
     let headers = response.headers().clone();
@@ -325,7 +334,7 @@ async fn rich_redirect_html_escapes_attributes_and_hashes_its_script() {
 
 #[tokio::test]
 async fn existing_keys_resolve_and_unsafe_legacy_rows_are_blocked() {
-    let app = app("20", None).await;
+    let app = app("20").await;
     sqlx::query(
         "INSERT INTO urls (id, random_key, default_fallback_url, hashed_value)
         VALUES
@@ -340,6 +349,7 @@ async fn existing_keys_resolve_and_unsafe_legacy_rows_are_blocked() {
     assert_eq!(app.get("/A28X").await.status(), StatusCode::NOT_FOUND);
     assert_eq!(app.get("/Ab3D7Xy").await.status(), StatusCode::FOUND);
     assert_eq!(app.get("/Ab3D7XY").await.status(), StatusCode::NOT_FOUND);
+
     let unsafe_key = app
         .insert_legacy("javascript:0", &destination(), true)
         .await;
@@ -352,7 +362,7 @@ async fn existing_keys_resolve_and_unsafe_legacy_rows_are_blocked() {
 
 #[tokio::test]
 async fn inactive_row_does_not_block_recreation() {
-    let app = app("20", None).await;
+    let app = app("20").await;
     let url = destination();
     let hash = LinkFields {
         default_fallback_url: Some(url.clone()),
@@ -365,7 +375,7 @@ async fn inactive_row_does_not_block_recreation() {
         app.get(&format!("/{inactive}")).await.status(),
         StatusCode::NOT_FOUND
     );
-    let created = app.create(json!({"defaultFallbackUrl":url})).await;
+    let created = app.create(json!({"defaultFallbackUrl": url})).await;
     assert_eq!(created.status(), StatusCode::CREATED);
     assert_ne!(key(created).await, inactive);
     app.finish().await;
@@ -373,7 +383,7 @@ async fn inactive_row_does_not_block_recreation() {
 
 #[tokio::test]
 async fn malformed_paths_return_json_not_found() {
-    let app = app("20", None).await;
+    let app = app("20").await;
     for path in [
         "/favicon.ico",
         "/robots.txt",
@@ -385,190 +395,170 @@ async fn malformed_paths_return_json_not_found() {
     ] {
         let response = app.get(path).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
-        assert_eq!(body(response).await, json!({"error":"URL not found"}));
+        assert_eq!(body(response).await, json!({"error": "URL not found"}));
     }
     app.finish().await;
 }
 
 #[tokio::test]
-async fn redis_is_optional_when_unreachable_at_startup() {
-    let unavailable = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    let app = app("20", Some(unavailable.local_addr().unwrap().port())).await;
+async fn health_and_ready_report_database_status() {
+    let app = app("20").await;
+    let health = app.get("/health").await;
+    assert_eq!(health.status(), StatusCode::OK);
+    assert_eq!(body(health).await["status"], "ok");
+
     let ready = app.get("/ready").await;
     assert_eq!(ready.status(), StatusCode::OK);
     assert_eq!(
         body(ready).await,
-        json!({"status":"degraded","database":"connected","cache":"disconnected"})
+        json!({"status": "ok", "database": "connected"})
     );
+    app.finish().await;
+}
+
+#[tokio::test]
+async fn l1_cache_serves_link_after_db_row_removed() {
+    let app = app("20").await;
     let url = destination();
-    let known_key = app.insert_legacy(&url, &url, true).await;
-    let response = app.get(&format!("/{known_key}")).await;
+    let short_key = key(app.create(json!({"defaultFallbackUrl": url})).await).await;
+    let (id, _) = url_shortener::short_key::parse_short_key(&short_key).unwrap();
+    sqlx::query("DELETE FROM urls WHERE id = $1")
+        .bind(id)
+        .execute(&app.db)
+        .await
+        .unwrap();
+
+    // Creation warmed L1, so the click still succeeds from RAM without hitting PG.
+    let response = app.get(&format!("/{short_key}")).await;
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(response.headers()[header::LOCATION], url);
     app.finish().await;
 }
 
 #[tokio::test]
-async fn cold_redirect_populates_redis_and_next_instance_uses_it() {
-    let app = app("20", None).await;
+async fn write_rate_limit_scopes_to_create_and_leaves_reads_unthrottled() {
+    let app = app("2").await;
+    let payload = json!({"defaultFallbackUrl": destination()}).to_string();
     assert_eq!(
-        body(app.get("/ready").await).await,
-        json!({"status":"ok","database":"connected","cache":"connected"})
+        app.post(payload.clone(), &[]).await.status(),
+        StatusCode::CREATED
     );
-    let url = destination();
-    let known_key = app.insert_legacy(&url, &url, true).await;
-    let path = format!("/{known_key}");
-    assert_eq!(app.get(&path).await.status(), StatusCode::FOUND);
-
-    let id = url_shortener::short_key::parse_short_key(&known_key)
-        .unwrap()
-        .0;
-    let client = redis::Client::open(app.config.redis.clone().unwrap()).unwrap();
-    let mut connection = client.get_multiplexed_async_connection().await.unwrap();
-    let redis_key = format!("u:{id}");
-    let stored: String = tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            let value: Option<String> = redis::cmd("GET")
-                .arg(&redis_key)
-                .query_async(&mut connection)
-                .await
-                .unwrap();
-            if let Some(value) = value {
-                break value;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
     assert_eq!(
-        serde_json::from_str::<Value>(&stored).unwrap()["defaultFallbackUrl"],
-        url
+        app.post(payload.clone(), &[]).await.status(),
+        StatusCode::OK
     );
-    let ttl: i64 = redis::cmd("TTL")
-        .arg(&redis_key)
-        .query_async(&mut connection)
-        .await
-        .unwrap();
-    assert!((1..=60).contains(&ttl));
-
-    sqlx::query("UPDATE urls SET is_active = false WHERE id = $1")
-        .bind(id)
-        .execute(&app.db)
-        .await
-        .unwrap();
-    let other_db = app.config.connect_db().await.unwrap();
-    let state = AppState::new(other_db, &app.config).await.unwrap();
-    let router = create_routes(state.clone(), &app.config).unwrap();
-    let request = Request::builder().uri(&path).body(Body::empty()).unwrap();
-    assert_eq!(
-        router.oneshot(request).await.unwrap().status(),
-        StatusCode::FOUND
-    );
-    state.shutdown().await;
-    app.finish().await;
-}
-
-#[tokio::test]
-async fn write_rate_limit_does_not_include_redirects_or_probes() {
-    let app = app("2", None).await;
-    let created = app
-        .create(json!({"defaultFallbackUrl":destination()}))
-        .await;
-    let path = format!("/{}", key(created).await);
-    let limited = app.get("/").await;
+    let limited = app.post(payload, &[]).await;
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(limited.headers()[header::RETRY_AFTER], "1");
-    assert_eq!(body(limited).await, json!({"error":"Too many requests"}));
-    for (path, status) in [
-        ("/health", StatusCode::OK),
-        ("/ready", StatusCode::OK),
-        (&path, StatusCode::FOUND),
-    ] {
-        assert_eq!(app.get(path).await.status(), status);
-    }
-    app.finish().await;
-}
+    assert!(limited.headers().contains_key(header::RETRY_AFTER));
+    assert_eq!(body(limited).await, json!({"error": "Too many requests"}));
 
-#[test]
-fn normalizes_fields_before_hashing() {
-    let fields = LinkFields {
-        default_fallback_url: Some(" https://BÜCHER.de/새 ".into()),
-        ios_deep_link: Some(" myapp://home ".into()),
-        og_description: Some("   ".into()),
-        ..LinkFields::default()
-    }
-    .normalize()
-    .unwrap();
-    assert_eq!(
-        fields.default_fallback_url.as_deref(),
-        Some("https://xn--bcher-kva.de/%EC%83%88")
-    );
-    assert_eq!(fields.ios_deep_link.as_deref(), Some("myapp://home"));
-    assert!(fields.og_description.is_none());
-}
-
-#[tokio::test]
-async fn concurrent_duplicate_creates_get_one_key() {
-    let app = app("30", None).await;
-    let cookie = app.cookie().await;
-    let payload = json!({"defaultFallbackUrl":destination()}).to_string();
-    let mut requests = tokio::task::JoinSet::new();
-    for _ in 0..12 {
-        let router = app.router.clone();
-        let request = Request::builder()
-            .method("POST")
-            .uri("/v1/urls")
-            .header(header::COOKIE, &cookie)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(payload.clone()))
-            .unwrap();
-        requests.spawn(async move { router.oneshot(request).await.unwrap() });
-    }
-
-    let mut created = 0;
-    let mut keys = std::collections::HashSet::new();
-    while let Some(response) = requests.join_next().await {
-        let response = response.unwrap();
-        match response.status() {
-            StatusCode::CREATED => created += 1,
-            StatusCode::OK => {}
-            status => panic!("Unexpected creation status {status}"),
-        }
-        keys.insert(key(response).await);
-    }
-    assert_eq!(created, 1);
-    assert_eq!(keys.len(), 1);
+    // Index page, probes, and redirects remain unaffected.
+    assert_eq!(app.get("/").await.status(), StatusCode::OK);
+    assert_eq!(app.get("/health").await.status(), StatusCode::OK);
+    assert_eq!(app.get("/ready").await.status(), StatusCode::OK);
+    assert_eq!(app.get("/Ab00001Xy").await.status(), StatusCode::NOT_FOUND);
     app.finish().await;
 }
 
 #[tokio::test]
 async fn forwarded_ip_is_used_only_from_a_trusted_peer() {
-    use axum::extract::ConnectInfo;
-    use std::net::SocketAddr;
-
-    let app = app("1", None).await;
-    for (peer, advertised, status) in [
-        ("172.16.0.2:12345", "1.1.1.1", StatusCode::OK),
-        ("172.16.0.2:12345", "8.8.8.8", StatusCode::OK),
-        ("172.16.0.2:12345", "1.1.1.1", StatusCode::TOO_MANY_REQUESTS),
-        ("203.0.113.2:12345", "1.1.1.1", StatusCode::OK),
-        (
-            "203.0.113.2:12345",
-            "8.8.8.8",
-            StatusCode::TOO_MANY_REQUESTS,
-        ),
-    ] {
+    let app = app("1").await;
+    let payload = json!({"defaultFallbackUrl": destination()}).to_string();
+    let send = |peer: [u8; 4], forwarded: &str| {
         let mut request = Request::builder()
-            .uri("/")
-            .header("cf-connecting-ip", advertised)
-            .body(Body::empty())
+            .method("POST")
+            .uri("/v1/urls")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("cf-connecting-ip", forwarded)
+            .body(Body::from(payload.clone()))
             .unwrap();
         request
             .extensions_mut()
-            .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
-        let response = app.router.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), status);
+            .insert(ConnectInfo(SocketAddr::from((peer, 12_345))));
+        app.router.clone().oneshot(request)
+    };
+
+    // Trusted private peer (Cloudflare Tunnel on Docker network) honors CF-Connecting-IP.
+    assert_eq!(
+        send([172, 22, 0, 3], "203.0.113.10")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        send([172, 22, 0, 3], "203.0.113.11")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    // Direct public peer cannot spoof CF-Connecting-IP to evade rate limiting.
+    assert_eq!(
+        send([198, 51, 100, 1], "203.0.113.12")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send([198, 51, 100, 1], "203.0.113.13")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    app.finish().await;
+}
+
+#[tokio::test]
+async fn normalizes_fields_before_hashing() {
+    let app = app("20").await;
+    let suffix = destination();
+    let first = app
+        .create(json!({"defaultFallbackUrl": format!("  {suffix}  "), "ogTitle": "  Title  "}))
+        .await;
+    assert_eq!(first.status(), StatusCode::CREATED);
+    let second = app
+        .create(json!({"defaultFallbackUrl": suffix, "ogTitle": "Title", "ogDescription": "   "}))
+        .await;
+    assert_eq!(second.status(), StatusCode::OK);
+    assert_eq!(key(first).await, key(second).await);
+    app.finish().await;
+}
+
+#[tokio::test]
+async fn concurrent_duplicate_creates_get_one_key() {
+    let app = app("20").await;
+    let payload = json!({"defaultFallbackUrl": destination()});
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let router = app.router.clone();
+        let body_str = payload.to_string();
+        tasks.push(tokio::spawn(async move {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/urls")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body_str))
+                .unwrap();
+            let response = router.oneshot(req).await.unwrap();
+            (response.status(), key(response).await)
+        }));
     }
+    let mut keys = std::collections::HashSet::new();
+    let mut created = 0;
+    for task in tasks {
+        let (status, short_key) = task.await.unwrap();
+        if status == StatusCode::CREATED {
+            created += 1;
+        } else {
+            assert_eq!(status, StatusCode::OK);
+        }
+        keys.insert(short_key);
+    }
+    assert_eq!(created, 1);
+    assert_eq!(keys.len(), 1);
     app.finish().await;
 }

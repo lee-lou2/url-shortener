@@ -1,3 +1,11 @@
+//! Zero-allocation Base62 short-key codec (`0-9A-Za-z`).
+//!
+//! - **Current v1 (`5..=15` chars):** `prefix(2) + base62(id) + suffix(2)`
+//! - **Legacy production (`3..=4` chars):** `prefix(1) + base62(id) + suffix(1)` (`id <= 3843`)
+//!
+//! Keys are parsed and validated (length, ASCII alphanumeric, no leading `'0'`,
+//! `1 <= id <= i64::MAX`) **before** touching the cache or PostgreSQL.
+
 use rand::distributions::{Alphanumeric, DistString};
 
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";

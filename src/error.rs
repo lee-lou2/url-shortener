@@ -1,3 +1,8 @@
+//! Uniform JSON error responses (`{"error": "..."}`) and custom JSON extractor.
+//!
+//! 4xx errors return safe client-facing messages; 5xx errors log internally,
+//! report to Sentry, and emit a generic message without leaking DB or runtime internals.
+
 use axum::{
     extract::{FromRequest, Request},
     http::StatusCode,
