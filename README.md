@@ -4,7 +4,10 @@
 
 🚀 **데모:** [https://u.lou2.kr](https://u.lou2.kr)
 
-![demo site](docs/screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img alt="URL 단축기 데모 화면" src="docs/screenshot.png" width="760">
+</picture>
 
 Rust(Axum + PostgreSQL)로 만든 빠른 URL 단축 서비스입니다. 앱 딥링크, 플랫폼별 폴백, Open Graph 미리보기, 클릭 웹훅을 지원하며
 일반 링크는 `302` 한 번으로 리디렉션합니다.
@@ -32,7 +35,7 @@ Rust(Axum + PostgreSQL)로 만든 빠른 URL 단축 서비스입니다. 앱 딥�
 | 캐시 | `moka`(L1) + 선택적 Redis `ConnectionManager`(L2, `u:{id}` JSON) |
 | 페이지 | `views/`의 순수 HTML/CSS/JS (빌드 단계·CDN 없음), 리디렉션 페이지는 Askama로 렌더링 |
 | 인증 | 게스트 JWT (`token` 쿠키 또는 `Authorization: Bearer`) |
-| 운영 | Sentry, `tracing`, graceful shutdown |
+| 운영 | Sentry, `tracing`, mimalloc(Linux/macOS), graceful shutdown |
 
 ### 리디렉션: `GET /{short_key}`
 
@@ -112,20 +115,22 @@ cargo run                 # 마이그레이션 적용 후 http://localhost:3000
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
 | `SERVER_PORT` | `3000` | HTTP 포트 |
-| `RUST_ENV` | `development` | `production`이면 `JWT_SECRET`(32바이트 이상) 필수, 쿠키에 `Secure` 추가 |
+| `RUST_ENV` | `development` | `production`/`prod`이면 `JWT_SECRET`(32바이트 이상) 필수 및 쿠키 `Secure` 추가 (`development`/`dev`/`test` 허용, 대소문자 무관) |
 | `RUST_LOG` | `info` | `tracing_subscriber` 로그 필터 |
 | `JWT_SECRET` | — | 게스트 토큰 서명 시크릿 |
 | `JWT_EXPIRATION_HOURS` | `24` | `1..=8760`, 쿠키 `Max-Age`로도 사용 |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | `.env.example` 참고 | PostgreSQL 접속 정보 (특수문자 비밀번호도 안전) |
 | `DB_MAX_CONNECTIONS` | `10` | 커넥션 풀 크기 |
-| `RUN_MIGRATIONS` | `true` | 부팅 시 `migrations/` 적용 |
+| `RUN_MIGRATIONS` | `true` | 부팅 시 `migrations/` 적용 (`true`/`1`/`yes`, `false`/`0`/`no`) |
 | `REDIS_HOST` | — | 비어 있으면 L1 전용 모드 (`/ready`의 `cache: "disabled"`) |
 | `REDIS_PORT`, `REDIS_USER`, `REDIS_PASSWORD`, `REDIS_DB` | `.env.example` 참고 | Redis 접속 정보 (L2 TTL은 L1과 동일한 최대 60초) |
 | `CACHE_MAX_CAPACITY_BYTES` | `33554432` | L1 바이트 상한 (32 MiB) |
 | `RATE_LIMIT_PER_SECOND` | `10` | `POST /v1/urls`, `GET /`의 IP별 초당 허용량 |
 | `RATE_LIMIT_BURST_SIZE` | `20` | 같은 경로의 IP별 버스트 |
-| `CORS_ORIGINS` | — | 쉼표로 구분한 오리진, 비어 있으면 CORS 비활성(동일 출처 전용) |
+| `CORS_ORIGINS` | — | 쉼표로 구분한 오리진, 비어 있으면 비활성 (`*`는 개발 환경에서만 허용되며 운영에서는 경고 후 무시) |
 | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE` | — / `0.1` | 선택 사항, 5xx 오류 보고 및 트레이스 샘플링 비율(`0.0..=1.0`) |
+
+이전 버전의 미사용 환경 변수(`CACHE_TTL_SECS`, `WEBHOOK_*` 등)는 안전하게 무시됩니다. 빈 값(`KEY=`)은 기본값으로 처리됩니다.
 
 ## API
 
@@ -176,9 +181,23 @@ curl -s -b jar.txt https://u.lou2.kr/v1/urls \
 
 ## 성능
 
-<!-- BENCHMARK_TABLE -->
-벤치마크 스위트의 실측 결과를 이곳에 게시합니다. 그 전까지는 어떤 성능 수치도 주장하지 않습니다.
-<!-- /BENCHMARK_TABLE -->
+단일 CPU 워커(`TOKIO_WORKER_THREADS=1`), 로컬 macOS(Apple Silicon)의 PostgreSQL 15.19(**100만 행**, 일반 링크 ~85% + OG/딥링크 ~15%) + Redis 8.10 환경에서 리디자인 전후를 동일 하네스로 실측한 결과입니다(운영 1 CPU / 512 MB Linux 컨테이너 절대치와 다를 수 있습니다).
+
+| 항목 | 개선 전 (`main`) | 개선 후 (v2) | 변화 |
+|------|------------------:|-------------:|------|
+| PostgreSQL 인덱스 (100만 행) | 5개 (**129.8 MB**) | 2개 (**78.0 MB**) | **-39.9%** (중복 3개 제거) |
+| 10,000건 벌크 `INSERT` / WAL | 63.5k rows/s · 4.10 MB | **119.8k rows/s · 1.76 MB** | **1.89배 처리량 · WAL -57.1%** |
+| 핫 Zipfian 리디렉션 (c=32, `br,gzip`) | 20,643 RPS (p99 2.27 ms) | **120,303 RPS** (p99 **0.37 ms**) | **5.83배 RPS · p99 6.1배 개선** |
+| 핫 Zipfian 리디렉션 (c=64, `br,gzip`) | 21,252 RPS (p99 3.69 ms) | **139,324 RPS** (p99 **0.64 ms**) | **6.56배 RPS · p99 5.8배 개선** |
+| 핫 / 콜드 100만 건 (L1 전용, `REDIS_HOST=""`) | — | **147,417 / 35,475 RPS** (p99 0.31 / 1.32 ms) | 단일 노드에서 L1+L2 대비 +22~25% |
+| 콜드 랜덤 100만 건 (L1+L2, c=32) | 15,337 RPS (p99 3.17 ms) | **28,487 RPS** (p99 **1.75 ms**) | **1.86배 RPS · p99 1.8배 개선** |
+| 오타 `random_key` 2,000건 (`id=42`) | PG 스캔 **2,000회** | PG 스캔 **1회** | **-99.95% DB 부하** |
+| 선행 `'0'` 별칭 2,000건 공격 | `200` 2,000건 · Redis +2,000키 | **`404` 2,000건 · DB/Redis 0회** | I/O 전 100% 차단 |
+| 200-way 콜드 스탬피드 | PG 스캔 **20회** (p99 16.80 ms) | PG 스캔 **1회** (p99 **6.76 ms**) | singleflight로 20배 감소 |
+| Redis 종료(`SIGTERM`) / 정지(`SIGSTOP`) | **100% HTTP 500** / **100% 3초 타임아웃** | **오류 0% · 타임아웃 0건** (p50 < 1 ms) | 무중단 폴백 및 자동 복구 |
+| 중복 생성 50건 시퀀스 소모 / OG 하이재킹 | 시퀀스 50 소모 · 하이재킹 발생 | **시퀀스 0 소모 · 키 분리** | 9필드 SHA-256 + `SELECT` 우선 |
+
+> 단일 컨테이너(예: 1 CPU / 512 MB)에서 PostgreSQL과 같은 호스트를 쓴다면 `REDIS_HOST`를 비워 L1 전용으로 운영할 때 가장 빠릅니다(핫 147k / 콜드 35k RPS, 피크 RSS ~99 MB). 다중 인스턴스 수평 확장이나 재시작 직후 캐시 유지가 필요하면 Redis L2를 켜세요.
 
 ## 프로젝트 구조
 

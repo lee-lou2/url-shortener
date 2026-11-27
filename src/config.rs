@@ -35,7 +35,13 @@ impl Config {
     }
 
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
-        let production = match lookup("RUST_ENV").as_deref() {
+        let production = match lookup("RUST_ENV")
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
             Some("production" | "prod") => true,
             Some("development" | "dev" | "test") | None => false,
             Some(_) => return Err(ConfigError("RUST_ENV")),
@@ -66,21 +72,33 @@ impl Config {
         let cors_origins = lookup("CORS_ORIGINS")
             .filter(|value| !value.trim().is_empty())
             .map(|value| {
-                value
+                let mut origins = Vec::new();
+                for origin in value
                     .split(',')
-                    .map(|origin| cors_origin(origin.trim(), production))
-                    .collect()
+                    .map(str::trim)
+                    .filter(|origin| !origin.is_empty())
+                {
+                    if origin == "*" && production {
+                        tracing::warn!(
+                            "Ignoring wildcard CORS_ORIGINS=* in production; configure explicit origins instead"
+                        );
+                        continue;
+                    }
+                    origins.push(cors_origin(origin, production)?);
+                }
+                Ok(origins)
             })
             .transpose()?
             .unwrap_or_default();
 
         let postgres = PgConnectOptions::new()
-            .host(&lookup("DB_HOST").unwrap_or_else(|| "localhost".into()))
+            .host(&non_empty(&lookup, "DB_HOST", "localhost"))
             .port(parse(&lookup, "DB_PORT", 5432)?)
-            .username(&lookup("DB_USER").unwrap_or_else(|| "postgres".into()))
+            .username(&non_empty(&lookup, "DB_USER", "postgres"))
             .password(&lookup("DB_PASSWORD").unwrap_or_else(|| "postgres".into()))
-            .database(&lookup("DB_NAME").unwrap_or_else(|| "postgres".into()));
+            .database(&non_empty(&lookup, "DB_NAME", "postgres"));
         let redis = lookup("REDIS_HOST")
+            .map(|host| host.trim().to_owned())
             .filter(|host| !host.is_empty())
             .map(|host| {
                 let db = parse(&lookup, "REDIS_DB", 0_i64)?;
@@ -115,7 +133,7 @@ impl Config {
             cors_origins,
             rate_limit_per_second,
             rate_limit_burst_size,
-            run_migrations: parse(&lookup, "RUN_MIGRATIONS", true)?,
+            run_migrations: parse_bool(&lookup, "RUN_MIGRATIONS", true)?,
             sentry_dsn: lookup("SENTRY_DSN").unwrap_or_default(),
             sentry_traces_sample_rate: sample_rate,
         })
@@ -131,14 +149,43 @@ impl Config {
     }
 }
 
+fn non_empty(lookup: &impl Fn(&str) -> Option<String>, name: &str, default: &str) -> String {
+    lookup(name)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.into())
+}
+
 fn parse<T: std::str::FromStr>(
     lookup: &impl Fn(&str) -> Option<String>,
     name: &'static str,
     default: T,
 ) -> Result<T, ConfigError> {
-    lookup(name).map_or(Ok(default), |value| {
-        value.parse().map_err(|_| ConfigError(name))
-    })
+    match lookup(name) {
+        Some(value) if !value.trim().is_empty() => {
+            value.trim().parse().map_err(|_| ConfigError(name))
+        }
+        _ => Ok(default),
+    }
+}
+
+fn parse_bool(
+    lookup: &impl Fn(&str) -> Option<String>,
+    name: &'static str,
+    default: bool,
+) -> Result<bool, ConfigError> {
+    match lookup(name)
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        None => Ok(default),
+        Some("true" | "1" | "yes") => Ok(true),
+        Some("false" | "0" | "no") => Ok(false),
+        Some(_) => Err(ConfigError(name)),
+    }
 }
 
 fn cors_origin(origin: &str, production: bool) -> Result<HeaderValue, ConfigError> {
@@ -195,5 +242,22 @@ mod tests {
         let redis = config.redis.unwrap();
         assert_eq!(redis.redis.db, 14);
         assert_eq!(redis.redis.password.as_deref(), Some("@:/#?%"));
+    }
+
+    #[test]
+    fn tolerates_empty_defaults_case_insensitive_env_and_prod_wildcard_cors() {
+        let cfg = config(&[
+            ("RUST_ENV", "Production"),
+            ("JWT_SECRET", &"x".repeat(32)),
+            ("RUN_MIGRATIONS", "1"),
+            ("SERVER_PORT", ""),
+            ("CORS_ORIGINS", "*, https://u.lou2.kr"),
+        ])
+        .unwrap();
+        assert!(cfg.production);
+        assert!(cfg.run_migrations);
+        assert_eq!(cfg.bind.port(), 3000);
+        assert_eq!(cfg.cors_origins.len(), 1);
+        assert_eq!(cfg.cors_origins[0], "https://u.lou2.kr");
     }
 }

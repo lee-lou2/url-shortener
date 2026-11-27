@@ -39,7 +39,7 @@ Other: `views/index.html` (served verbatim), `views/redirect.html` (Askama `Redi
    parsed before any cache/DB call. Anything invalid → `404 {"error":"URL not found"}` (also `/favicon.ico`, `/robots.txt`).
 3. **Contract:** `GET /`, `POST /v1/urls`, `GET /{short_key}`, `GET /health`, `GET /ready`. Request fields are camelCase;
    response is `{message, short_key, created}` (`201` new, `200` existing); errors are `{"error": "..."}`.
-   Env var names are the production contract: add, never rename or remove.
+   Env var names are the production contract: removed legacy knobs are ignored; never reuse an old name with new meaning.
 4. **URLs:** destination, platform fallbacks, OG image and webhook are `http`/`https` only (≤ 2048 bytes, no control bytes,
    stored as `Url::as_str()`). Deep links may use any scheme except `javascript data vbscript file blob about`.
    Re-validate when compiling a cache entry (legacy rows can predate these rules).
@@ -49,8 +49,8 @@ Other: `views/index.html` (served verbatim), `views/redirect.html` (Askama `Redi
    The server hashes the script text at startup for `script-src 'sha256-…'`, so scripts are edited freely but must stay a single block.
 7. **SQL:** parameterized binds only (never `format!`); always filter `deleted_at IS NULL AND is_active = true`.
    Takedown = `UPDATE urls SET deleted_at = now() WHERE id = $1` (L1 expires within 60 s; also `DEL u:{id}` if L2 is on).
-8. **Code:** zero global statics; no `.unwrap()` / `.expect()` / `panic!` outside tests and `main` startup; no `println!` (use `tracing`);
-   config only via `Config` in `AppState`; no file over ~300 lines (split by responsibility).
+8. **Code:** zero global mutable statics (only `#[global_allocator]` mimalloc in `main.rs`); no `.unwrap()` / `.expect()` / `panic!` outside tests and `main` startup; no `println!` (use `tracing`);
+   config only via `Config` in `AppState`; keep every file under `src/` under ~300 lines (split by responsibility).
 9. **Rate limit:** only `POST /v1/urls` and `GET /`; trust `CF-Connecting-IP` only when the TCP peer is loopback/private.
 10. **Docs:** no performance number without a measured benchmark. Change the contract, env vars, module map or an invariant
     ⇒ update this file and both READMEs in the same PR.

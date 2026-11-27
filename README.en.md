@@ -4,7 +4,10 @@
 
 🚀 **Demo:** [https://u.lou2.kr](https://u.lou2.kr)
 
-![demo site](docs/screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img alt="URL Shortener demo UI" src="docs/screenshot.png" width="760">
+</picture>
 
 A fast URL shortener written in Rust (Axum + PostgreSQL). It creates short links with app deep links, platform fallbacks,
 Open Graph previews and click webhooks. Plain links are redirected with a single `302`.
@@ -32,7 +35,7 @@ Open Graph previews and click webhooks. Plain links are redirected with a single
 | Cache | `moka` (L1) + optional Redis `ConnectionManager` (L2, `u:{id}` JSON) |
 | Pages | Plain HTML/CSS/JS in `views/` (no build step, no CDN); Askama renders the redirect page |
 | Auth | Guest JWT (`token` cookie or `Authorization: Bearer`) |
-| Ops | Sentry, `tracing`, graceful shutdown |
+| Ops | Sentry, `tracing`, mimalloc (Linux/macOS), graceful shutdown |
 
 ### Redirect: `GET /{short_key}`
 
@@ -113,20 +116,22 @@ Authoritative, commented list: [`.env.example`](.env.example).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SERVER_PORT` | `3000` | HTTP port |
-| `RUST_ENV` | `development` | `production` requires `JWT_SECRET` (≥ 32 bytes) and adds `Secure` to the cookie |
+| `RUST_ENV` | `development` | `production`/`prod` requires `JWT_SECRET` (≥ 32 bytes) and adds `Secure` to the cookie (`development`/`dev`/`test` allowed, case-insensitive) |
 | `RUST_LOG` | `info` | `tracing_subscriber` log filter |
 | `JWT_SECRET` | — | Guest-token signing secret |
 | `JWT_EXPIRATION_HOURS` | `24` | `1..=8760`; also the cookie `Max-Age` |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | see `.env.example` | PostgreSQL connection parts (passwords with special characters are safe) |
 | `DB_MAX_CONNECTIONS` | `10` | Pool size |
-| `RUN_MIGRATIONS` | `true` | Apply `migrations/` on boot |
+| `RUN_MIGRATIONS` | `true` | Apply `migrations/` on boot (`true`/`1`/`yes`, `false`/`0`/`no`) |
 | `REDIS_HOST` | — | Unset or empty ⇒ L1-only mode (`cache: "disabled"` in `/ready`) |
 | `REDIS_PORT`, `REDIS_USER`, `REDIS_PASSWORD`, `REDIS_DB` | see `.env.example` | Redis connection parts (L2 TTL matches L1: ≤ 60 s) |
 | `CACHE_MAX_CAPACITY_BYTES` | `33554432` | L1 byte cap (32 MiB) |
 | `RATE_LIMIT_PER_SECOND` | `10` | Per-IP rate for `POST /v1/urls` and `GET /` |
 | `RATE_LIMIT_BURST_SIZE` | `20` | Per-IP burst for the same routes |
-| `CORS_ORIGINS` | — | Comma-separated origins; empty disables CORS (same-origin only) |
+| `CORS_ORIGINS` | — | Comma-separated origins; empty disables CORS (`*` is dev-only and ignored with a warning in production) |
 | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE` | — / `0.1` | Optional; 5xx error reporting and traces sample rate (`0.0..=1.0`) |
+
+Removed legacy environment variables (such as `CACHE_TTL_SECS` or `WEBHOOK_*`) are safely ignored, and empty values (`KEY=`) fall back to defaults.
 
 ## API
 
@@ -177,9 +182,23 @@ Empty strings count as absent. Success: `201` `{"message":"URL shortened success
 
 ## Performance
 
-<!-- BENCHMARK_TABLE -->
-Measured results of the benchmark suite will be published here. No performance figures are claimed until then.
-<!-- /BENCHMARK_TABLE -->
+Measured on a single worker thread (`TOKIO_WORKER_THREADS=1`) on local macOS (Apple Silicon) against PostgreSQL 15.19 (**1,000,000 rows**, ~85% plain + ~15% OG/deep-link) and Redis 8.10 using the same compiled Rust HTTP/1.1 keep-alive harness before and after the v2 redesign (absolute throughput on a 1 CPU / 512 MB Linux container will differ).
+
+| Experiment | Before (`main`) | After (v2) | Improvement |
+|------------|----------------:|-----------:|-------------|
+| PostgreSQL indexes (1M rows) | 5 indexes (**129.8 MB**) | 2 indexes (**78.0 MB**) | **-39.9%** (3 redundant dropped) |
+| 10k bulk `INSERT` / WAL | 63.5k rows/s · 4.10 MB | **119.8k rows/s · 1.76 MB** | **1.89× throughput · -57.1% WAL** |
+| Hot Zipfian redirects (c=32, `br,gzip`) | 20,643 RPS (p99 2.27 ms) | **120,303 RPS** (p99 **0.37 ms**) | **5.83× RPS · 6.1× lower p99** |
+| Hot Zipfian redirects (c=64, `br,gzip`) | 21,252 RPS (p99 3.69 ms) | **139,324 RPS** (p99 **0.64 ms**) | **6.56× RPS · 5.8× lower p99** |
+| Hot / Cold 1M (L1-only, `REDIS_HOST=""`) | — | **147,417 / 35,475 RPS** (p99 0.31 / 1.32 ms) | +22–25% vs L1+L2 on single node |
+| Cold random 1M (L1+L2, c=32) | 15,337 RPS (p99 3.17 ms) | **28,487 RPS** (p99 **1.75 ms**) | **1.86× RPS · 1.8× lower p99** |
+| 2,000 wrong `random_key` for `id=42` | **2,000** PG `idx_scan`s | **1** PG `idx_scan` | **-99.95% DB load** |
+| 2,000 leading-zero aliases | `200` × 2,000 · +2,000 Redis keys | **`404` × 2,000 · 0 DB/Redis hits** | 100% blocked before I/O |
+| 200-way cold stampede | **20** PG scans (p99 16.80 ms) | **1** PG scan (p99 **6.76 ms**) | 20× fewer DB queries (singleflight) |
+| Redis `SIGTERM` / `SIGSTOP` blackhole | **100% HTTP 500** / **100% 3s timeout** | **0% errors · 0 timeouts** (p50 < 1 ms) | Graceful fallback + auto-heal |
+| 50× duplicate create seq burn / OG hijack | 50 IDs burned · hijacked | **0 IDs burned · distinct keys** | 9-field SHA-256 + `SELECT`-first |
+
+> On a single co-located container (e.g. 1 CPU / 512 MB), leaving `REDIS_HOST` blank (L1-only) is 22–25% faster on both hot (147k RPS) and cold (35k RPS) traffic with ~99 MB peak RSS. Enable Redis L2 when scaling horizontally across multiple replicas or preserving warm cache across restarts.
 
 ## Project layout
 

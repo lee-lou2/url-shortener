@@ -76,7 +76,13 @@ impl LinkFields {
                 hash.update([0]);
             }
         }
-        Ok(hex::encode(hash.finalize()))
+        let digest = hash.finalize();
+        let mut encoded = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            use std::fmt::Write as _;
+            let _ = write!(encoded, "{byte:02x}");
+        }
+        Ok(encoded)
     }
 }
 

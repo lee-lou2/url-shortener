@@ -174,4 +174,24 @@ mod tests {
         let expected = STANDARD.encode(Sha256::digest(b"some()\n"));
         assert_eq!(extract_inline_script_hash(page), Some(expected));
     }
+
+    #[test]
+    fn views_satisfy_single_script_csp_invariants() {
+        for (name, html) in [("index.html", INDEX_HTML), ("redirect.html", REDIRECT_HTML)] {
+            assert_eq!(html.matches("<script>").count(), 1, "{name} bare <script>");
+            assert_eq!(html.matches("<script").count(), 1, "{name} total <script");
+            assert_eq!(html.matches("</script>").count(), 1, "{name} </script>");
+            assert_eq!(html.matches("<style>").count(), 1, "{name} <style>");
+            let (_, rest) = html.split_once("<script>").unwrap();
+            let (script, _) = rest.split_once("</script>").unwrap();
+            assert!(!script.contains("{{"), "{name} interpolation in <script>");
+            assert!(!script.contains("{%"), "{name} template tag in <script>");
+            assert!(!html.contains("style=\""), "{name} inline style=");
+            assert!(!html.contains("onclick="), "{name} inline onclick=");
+            assert!(
+                !html.contains("https://cdn.") && !html.contains("fonts.googleapis.com"),
+                "{name} external CDN"
+            );
+        }
+    }
 }

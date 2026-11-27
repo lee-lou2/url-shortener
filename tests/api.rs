@@ -52,24 +52,37 @@ async fn app(burst: &str, redis_port: Option<u16>) -> TestApp {
         _ => None,
     })
     .unwrap();
-    config.postgres = if let Ok(url) =
+    let db = if let Ok(url) =
         std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
     {
-        url.parse().unwrap()
+        config.postgres = url.parse().unwrap();
+        assert!(
+            matches!(
+                config.postgres.get_database(),
+                Some("url_shortener_test" | "url_shortener")
+            ),
+            "Refusing to run integration tests against unexpected database: {:?}",
+            config.postgres.get_database()
+        );
+        config.connect_db().await.unwrap()
     } else {
-        PgConnectOptions::new()
+        // Prefer the compose.yaml default (postgres/postgres@127.0.0.1/url_shortener),
+        // falling back to local OS-user url_shortener_test when Postgres runs natively.
+        let compose = PgConnectOptions::new()
             .host("127.0.0.1")
-            .database("url_shortener_test")
+            .username("postgres")
+            .password("postgres")
+            .database("url_shortener");
+        config.postgres = compose;
+        if let Ok(pool) = config.connect_db().await {
+            pool
+        } else {
+            config.postgres = PgConnectOptions::new()
+                .host("127.0.0.1")
+                .database("url_shortener_test");
+            config.connect_db().await.unwrap()
+        }
     };
-    assert!(
-        matches!(
-            config.postgres.get_database(),
-            Some("url_shortener_test" | "url_shortener")
-        ),
-        "Refusing to run integration tests against unexpected database: {:?}",
-        config.postgres.get_database()
-    );
-    let db = config.connect_db().await.unwrap();
     MIGRATED
         .get_or_init(|| async { sqlx::migrate!().run(&db).await.unwrap() })
         .await;
