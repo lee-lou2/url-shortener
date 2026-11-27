@@ -66,7 +66,7 @@
     <div class="diagram-container">
       <svg viewBox="0 0 960 436" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="short-key-encoding-title short-key-encoding-desc">
         <title id="short-key-encoding-title">Short key generation</title>
-        <desc id="short-key-encoding-desc">Pipeline showing a PostgreSQL BIGSERIAL ID inline Base62-encoded on a stack buffer and wrapped with a 2-character random prefix and 2-character suffix to produce a canonical 5-to-15-character short key validated before I/O.</desc>
+        <desc id="short-key-encoding-desc">Pipeline showing a PostgreSQL BIGSERIAL ID inline Base62-encoded on a stack buffer and wrapped with a 2-character random prefix and 2-character suffix (with legacy 1+1 support) validated before I/O.</desc>
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
@@ -111,7 +111,7 @@
         <text x="722" y="209" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">ENCODE</text>
 
         <!-- Editorial callout -->
-        <text x="920" y="56" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">parse_short_key runs before I/O · len 5..=15 · rejects leading 0</text>
+        <text x="920" y="56" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">parse_short_key before I/O · v1 5..=15 &amp; legacy 3..=4 · rejects leading 0</text>
         <path d="M 860,64 Q 844,108 836,188" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="1" stroke-dasharray="4,3"/>
         <circle cx="836" cy="188" r="2" fill="#2d3142"/>
 

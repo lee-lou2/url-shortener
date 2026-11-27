@@ -4,17 +4,15 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.88"
 authors = ["URL Shortener Team"]
-description = "A URL shortening service with deep link support"
+description = "A fast, stateless URL shortening service with deep link support"
 
 [dependencies]
 askama = "0.12"
 axum = "0.8"
 base64 = "0.22"
 dotenvy = "0.15"
-jsonwebtoken = { version = "9.3", default-features = false }
 moka = { version = "0.12", features = ["future"] }
 rand = "0.8"
-redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sentry = { version = "0.35", default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls"] }
 serde = { version = "1", features = ["derive"] }

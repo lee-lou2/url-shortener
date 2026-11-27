@@ -1,3 +1,9 @@
+//! SSRF-safe async click webhooks backed by a single shared `reqwest::Client`.
+//!
+//! [`SafeDnsResolver`] pins validated global IP addresses directly inside `reqwest`
+//! (defeating DNS rebinding without rebuilding TLS clients), redirects are disabled,
+//! concurrency is capped at 64, and in-flight calls drain for up to 5 s on shutdown.
+
 use std::{
     io,
     net::{IpAddr, SocketAddr},

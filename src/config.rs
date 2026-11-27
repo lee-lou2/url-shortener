@@ -1,7 +1,11 @@
+//! Typed environment configuration with fail-fast validation at startup.
+//!
+//! Credentials are passed through structured [`PgConnectOptions`] rather than
+//! interpolated into URL strings, so special characters in passwords are safe.
+
 use std::{env, net::SocketAddr, time::Duration};
 
 use axum::http::HeaderValue;
-use redis::{ConnectionAddr, ConnectionInfo, RedisConnectionInfo};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
@@ -12,14 +16,12 @@ use thiserror::Error;
 #[error("Invalid configuration for {0}")]
 pub struct ConfigError(&'static str);
 
+/// Runtime configuration parsed once from environment variables at boot.
 pub struct Config {
     pub bind: SocketAddr,
     pub production: bool,
-    pub jwt_secret: String,
-    pub jwt_ttl: Duration,
     pub postgres: PgConnectOptions,
     pub db_max_connections: u32,
-    pub redis: Option<ConnectionInfo>,
     pub cache_max_capacity_bytes: u64,
     pub rate_limit_per_second: u32,
     pub rate_limit_burst_size: u32,
@@ -46,15 +48,7 @@ impl Config {
             Some("development" | "dev" | "test") | None => false,
             Some(_) => return Err(ConfigError("RUST_ENV")),
         };
-        let jwt_secret = match lookup("JWT_SECRET").filter(|secret| !secret.trim().is_empty()) {
-            Some(secret) if !production || secret.len() >= 32 => secret,
-            None if !production => "local-development-url-shortener-secret".to_owned(),
-            _ => return Err(ConfigError("JWT_SECRET")),
-        };
-        let jwt_hours: u64 = parse(&lookup, "JWT_EXPIRATION_HOURS", 24)?;
-        if !(1..=8760).contains(&jwt_hours) {
-            return Err(ConfigError("JWT_EXPIRATION_HOURS"));
-        }
+
         let server_port = parse(&lookup, "SERVER_PORT", 3000_u16)?;
         let db_max_connections = parse(&lookup, "DB_MAX_CONNECTIONS", 10_u32)?;
         let rate_limit_per_second = parse(&lookup, "RATE_LIMIT_PER_SECOND", 10_u32)?;
@@ -69,6 +63,7 @@ impl Config {
                 return Err(ConfigError(name));
             }
         }
+
         let cors_origins = lookup("CORS_ORIGINS")
             .filter(|value| !value.trim().is_empty())
             .map(|value| {
@@ -97,25 +92,7 @@ impl Config {
             .username(&non_empty(&lookup, "DB_USER", "postgres"))
             .password(&lookup("DB_PASSWORD").unwrap_or_else(|| "postgres".into()))
             .database(&non_empty(&lookup, "DB_NAME", "postgres"));
-        let redis = lookup("REDIS_HOST")
-            .map(|host| host.trim().to_owned())
-            .filter(|host| !host.is_empty())
-            .map(|host| {
-                let db = parse(&lookup, "REDIS_DB", 0_i64)?;
-                if db < 0 {
-                    return Err(ConfigError("REDIS_DB"));
-                }
-                Ok(ConnectionInfo {
-                    addr: ConnectionAddr::Tcp(host, parse(&lookup, "REDIS_PORT", 6379)?),
-                    redis: RedisConnectionInfo {
-                        db,
-                        username: lookup("REDIS_USER").filter(|value| !value.is_empty()),
-                        password: lookup("REDIS_PASSWORD").filter(|value| !value.is_empty()),
-                        ..RedisConnectionInfo::default()
-                    },
-                })
-            })
-            .transpose()?;
+
         let sample_rate = parse(&lookup, "SENTRY_TRACES_SAMPLE_RATE", 0.1_f32)?;
         if !(0.0..=1.0).contains(&sample_rate) {
             return Err(ConfigError("SENTRY_TRACES_SAMPLE_RATE"));
@@ -124,11 +101,8 @@ impl Config {
         Ok(Self {
             bind: SocketAddr::from(([0, 0, 0, 0], server_port)),
             production,
-            jwt_secret,
-            jwt_ttl: Duration::from_secs(jwt_hours * 3600),
             postgres,
             db_max_connections,
-            redis,
             cache_max_capacity_bytes: parse(&lookup, "CACHE_MAX_CAPACITY_BYTES", 32 * 1024 * 1024)?,
             cors_origins,
             rate_limit_per_second,
@@ -213,42 +187,25 @@ mod tests {
     }
 
     #[test]
-    fn requires_production_secret() {
-        assert!(config(&[("RUST_ENV", "production")]).is_err());
-        assert!(config(&[("RUST_ENV", "production"), ("JWT_SECRET", "short")]).is_err());
-        assert!(config(&[("RUST_ENV", "production"), ("JWT_SECRET", &"x".repeat(32))]).is_ok());
-    }
-
-    #[test]
-    fn validates_ttl_and_rate_configuration() {
+    fn validates_numeric_and_env_bounds() {
         for (name, value) in [
-            ("JWT_EXPIRATION_HOURS", "0"),
-            ("JWT_EXPIRATION_HOURS", "8761"),
+            ("RUST_ENV", "staging"),
             ("SERVER_PORT", "abc"),
+            ("SERVER_PORT", "0"),
+            ("DB_MAX_CONNECTIONS", "0"),
+            ("RATE_LIMIT_PER_SECOND", "0"),
             ("RATE_LIMIT_BURST_SIZE", "0"),
+            ("SENTRY_TRACES_SAMPLE_RATE", "1.5"),
+            ("RUN_MIGRATIONS", "maybe"),
         ] {
-            assert!(config(&[(name, value)]).is_err());
+            assert!(config(&[(name, value)]).is_err(), "{name}={value}");
         }
-    }
-
-    #[test]
-    fn uses_structured_redis_credentials() {
-        let config = config(&[
-            ("REDIS_HOST", "localhost"),
-            ("REDIS_DB", "14"),
-            ("REDIS_PASSWORD", "@:/#?%"),
-        ])
-        .unwrap();
-        let redis = config.redis.unwrap();
-        assert_eq!(redis.redis.db, 14);
-        assert_eq!(redis.redis.password.as_deref(), Some("@:/#?%"));
     }
 
     #[test]
     fn tolerates_empty_defaults_case_insensitive_env_and_prod_wildcard_cors() {
         let cfg = config(&[
             ("RUST_ENV", "Production"),
-            ("JWT_SECRET", &"x".repeat(32)),
             ("RUN_MIGRATIONS", "1"),
             ("SERVER_PORT", ""),
             ("CORS_ORIGINS", "*, https://u.lou2.kr"),
@@ -259,5 +216,17 @@ mod tests {
         assert_eq!(cfg.bind.port(), 3000);
         assert_eq!(cfg.cors_origins.len(), 1);
         assert_eq!(cfg.cors_origins[0], "https://u.lou2.kr");
+    }
+
+    #[test]
+    fn ignores_removed_legacy_env_vars() {
+        let cfg = config(&[
+            ("REDIS_HOST", "redis"),
+            ("JWT_SECRET", "legacy-unused-secret"),
+            ("CACHE_TTL_SECS", "3600"),
+        ])
+        .unwrap();
+        assert_eq!(cfg.bind.port(), 3000);
+        assert_eq!(cfg.postgres.get_database(), Some("postgres"));
     }
 }

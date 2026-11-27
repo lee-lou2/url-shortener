@@ -371,23 +371,18 @@ footer{margin-top:26px;text-align:center;font-size:.75rem;font-weight:500;color:
 
   function post(payload) {
     return fetch('/v1/urls', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload), signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined
     });
   }
   function reason(r, d) {
     var wait = parseInt(r.headers.get('Retry-After'), 10);
     if (r.status === 429) return 'Too many requests.' + (wait > 0 ? ' Try again in ' + wait + 's.' : ' Try again shortly.');
-    if (r.status === 401) return 'Your session expired. Reload the page and try again.';
     if (d.error) return d.error;
     return 'Request failed (' + r.status + '). Try again later.';
   }
   async function create(payload) {
     var r = await post(payload);
-    if (r.status === 401) {
-      await fetch('/', { credentials: 'same-origin', cache: 'no-store' });
-      r = await post(payload);
-    }
     var d = await r.json().catch(function () { return {}; });
     if (!r.ok) throw new Error(reason(r, d));
     return d;

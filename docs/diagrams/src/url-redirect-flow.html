@@ -64,9 +64,9 @@
     <h1>URL redirect flow</h1>
 
     <div class="diagram-container">
-      <svg viewBox="0 0 960 672" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="url-redirect-flow-title url-redirect-flow-desc">
+      <svg viewBox="0 0 960 632" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="url-redirect-flow-title url-redirect-flow-desc">
         <title id="url-redirect-flow-title">URL redirect flow</title>
-        <desc id="url-redirect-flow-desc">Sequence diagram showing GET /{short_key} parsing the short key before I/O, checking in-process moka L1 and optional Redis u:{id} L2 with singleflight PostgreSQL fallback, compiling a 302 Location or pre-rendered Askama HTML response, and firing an optional SSRF-safe async webhook.</desc>
+        <desc id="url-redirect-flow-desc">Sequence diagram showing GET /{short_key} parsing the short key before I/O, checking in-process moka L1 with singleflight PostgreSQL PK fallback on miss, returning a 302 Location or pre-rendered Askama HTML response, and firing an optional SSRF-safe async webhook.</desc>
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
@@ -83,115 +83,100 @@
         </defs>
 
         <rect width="100%" height="100%" fill="#f5f5f5"/>
-        <!-- Lifelines: Client 108 · Axum+L1 296 · Redis L2 484 · PostgreSQL 672 · Webhook 852 -->
-        <line x1="108" y1="96" x2="108" y2="588" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
-        <line x1="296" y1="96" x2="296" y2="588" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
-        <line x1="484" y1="96" x2="484" y2="588" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
-        <line x1="672" y1="96" x2="672" y2="588" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
-        <line x1="852" y1="96" x2="852" y2="588" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <!-- Lifelines: Client 136 · Axum+moka 368 · PostgreSQL 600 · Webhook 832 -->
+        <line x1="136" y1="96" x2="136" y2="548" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="368" y1="96" x2="368" y2="548" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="600" y1="96" x2="600" y2="548" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="832" y1="96" x2="832" y2="548" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
 
         <!-- Activation bars -->
-        <rect x="292" y="132" width="8" height="432" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
-        <rect x="480" y="250" width="8" height="32" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
-        <rect x="668" y="348" width="8" height="40" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
-        <rect x="480" y="456" width="8" height="20" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+        <rect x="364" y="132" width="8" height="392" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+        <rect x="596" y="336" width="8" height="44" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
 
         <!-- Incoming request + parse before I/O -->
-        <line x1="112" y1="132" x2="292" y2="132" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-        <rect x="168" y="112" width="68" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="202" y="121" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">GET /{KEY}</text>
-        <path d="M 300,152 H 336 Q 344,152 344,160 V 172 Q 344,180 336,180 H 300" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="356" y="160" width="88" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="400" y="169" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">PARSE KEY + L1</text>
+        <line x1="140" y1="132" x2="364" y2="132" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <rect x="220" y="112" width="68" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="254" y="121" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">GET /{KEY}</text>
+        <path d="M 372,152 H 412 Q 420,152 420,160 V 172 Q 420,180 412,180 H 372" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="432" y="160" width="88" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="476" y="169" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">PARSE KEY + L1</text>
 
-        <!-- ALT Combined Fragment (Axum+L1 · Redis L2 · PostgreSQL) -->
-        <rect x="240" y="200" width="472" height="288" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
-        <rect x="240" y="200" width="40" height="16" rx="2" fill="#f5f5f5" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
-        <text x="260" y="212" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">ALT</text>
+        <!-- ALT Combined Fragment (Axum+moka · PostgreSQL) -->
+        <rect x="304" y="200" width="368" height="248" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <rect x="304" y="200" width="40" height="16" rx="2" fill="#f5f5f5" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <text x="324" y="212" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">ALT</text>
 
-        <!-- Region 1: L1 miss -> L2 hit -->
-        <text x="312" y="220" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[L1 miss · optional L2 hit]</text>
-        <line x1="300" y1="250" x2="480" y2="250" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="356" y="232" width="68" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="390" y="241" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">GET U:{ID}</text>
-        <line x1="480" y1="282" x2="300" y2="282" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
-        <rect x="356" y="264" width="72" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="392" y="273" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">JSON RECORD</text>
+        <!-- Region 1: L1 hit -->
+        <text x="384" y="222" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[L1 hit · Found 60s / Miss 15s]</text>
+        <path d="M 372,240 H 412 Q 420,240 420,248 V 260 Q 420,268 412,268 H 372" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <rect x="432" y="248" width="104" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="484" y="257" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">VERIFY RANDOM_KEY</text>
 
         <!-- ALT divider -->
-        <line x1="248" y1="300" x2="704" y2="300" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+        <line x1="312" y1="288" x2="664" y2="288" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
 
-        <!-- Region 2: L2 miss or CB open -> DB singleflight -->
-        <text x="312" y="320" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[else · singleflight DB load]</text>
-        <line x1="300" y1="348" x2="668" y2="348" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="540" y="328" width="80" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="580" y="337" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">SELECT BY ID</text>
-        <line x1="668" y1="388" x2="300" y2="388" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
-        <rect x="544" y="368" width="68" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="578" y="377" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">ACTIVE ROW</text>
-        <path d="M 300,408 H 336 Q 344,408 344,416 V 428 Q 344,436 336,436 H 300" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-        <rect x="356" y="416" width="100" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="406" y="425" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">COMPILE + VERIFY</text>
-        <line x1="300" y1="468" x2="480" y2="468" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow-open)"/>
-        <rect x="344" y="448" width="96" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="392" y="457" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">ASYNC SETEX 60S</text>
+        <!-- Region 2: L1 miss -> singleflight PK lookup -->
+        <text x="384" y="308" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.04em">[else · singleflight DB load]</text>
+        <line x1="372" y1="336" x2="596" y2="336" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="436" y="316" width="96" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="484" y="325" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">SELECT BY PK ID</text>
+        <line x1="596" y1="380" x2="372" y2="380" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+        <rect x="452" y="360" width="68" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="486" y="369" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">ACTIVE ROW</text>
+        <path d="M 372,400 H 412 Q 420,400 420,408 V 420 Q 420,428 412,428 H 372" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="432" y="408" width="104" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="484" y="417" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">COMPILE + FILL L1</text>
 
         <!-- Response + async webhook -->
-        <line x1="292" y1="524" x2="112" y2="524" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
-        <rect x="156" y="504" width="96" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="204" y="513" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">302 OR 200 HTML</text>
-        <line x1="300" y1="564" x2="848" y2="564" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/>
-        <rect x="720" y="544" width="88" height="12" rx="2" fill="#f5f5f5"/>
-        <text x="764" y="553" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">IF HOOK · POST</text>
+        <line x1="364" y1="484" x2="140" y2="484" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <rect x="204" y="464" width="96" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="252" y="473" fill="#bf4520" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">302 OR 200 HTML</text>
+        <line x1="372" y1="524" x2="828" y2="524" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/>
+        <rect x="672" y="504" width="88" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="716" y="513" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">IF HOOK · POST</text>
 
-        <!-- Actor boxes (drawn after arrows) -->
-        <rect x="44" y="40" width="128" height="56" rx="6" fill="#f5f5f5"/>
-        <rect x="44" y="40" width="128" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
-        <rect x="52" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
-        <text x="66" y="55" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">APP</text>
-        <text x="108" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Client</text>
-        <text x="108" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Browser · Mobile</text>
-        <rect x="232" y="40" width="128" height="56" rx="6" fill="#f5f5f5"/>
-        <rect x="232" y="40" width="128" height="56" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
-        <rect x="240" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.50)" stroke-width="0.8"/>
-        <text x="254" y="55" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">L1</text>
-        <text x="296" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Axum + moka</text>
-        <text x="296" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">parse + singleflight</text>
-        <rect x="420" y="40" width="128" height="56" rx="6" fill="#f5f5f5"/>
-        <rect x="420" y="40" width="128" height="56" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.28)" stroke-width="1" stroke-dasharray="4,3"/>
-        <rect x="428" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
-        <text x="442" y="55" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">L2</text>
-        <text x="484" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Redis (Opt)</text>
-        <text x="484" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">u:{id} · 150ms CB</text>
-        <rect x="608" y="40" width="128" height="56" rx="6" fill="#f5f5f5"/>
-        <rect x="608" y="40" width="128" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
-        <rect x="616" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.45)" stroke-width="0.8"/>
-        <text x="630" y="55" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
-        <text x="672" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">PostgreSQL</text>
-        <text x="672" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">urls · PK lookup</text>
-        <rect x="788" y="40" width="128" height="56" rx="6" fill="#f5f5f5"/>
-        <rect x="788" y="40" width="128" height="56" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.28)" stroke-width="1" stroke-dasharray="4,3"/>
-        <rect x="796" y="46" width="32" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
-        <text x="812" y="55" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">HOOK</text>
-        <text x="852" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Webhook</text>
-        <text x="852" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">SafeDNS · max 64</text>
+        <!-- Actor boxes -->
+        <rect x="64" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="64" y="40" width="144" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <rect x="72" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="86" y="55" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">APP</text>
+        <text x="136" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Client</text>
+        <text x="136" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Browser · Mobile</text>
+        <rect x="296" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="296" y="40" width="144" height="56" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+        <rect x="304" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.50)" stroke-width="0.8"/>
+        <text x="318" y="55" fill="#bf4520" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">L1</text>
+        <text x="368" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Axum + moka</text>
+        <text x="368" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">parse + singleflight</text>
+        <rect x="528" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="528" y="40" width="144" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+        <rect x="536" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.45)" stroke-width="0.8"/>
+        <text x="550" y="55" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+        <text x="600" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">PostgreSQL</text>
+        <text x="600" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">urls · urls_pkey</text>
+        <rect x="760" y="40" width="144" height="56" rx="6" fill="#f5f5f5"/>
+        <rect x="760" y="40" width="144" height="56" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.28)" stroke-width="1" stroke-dasharray="4,3"/>
+        <rect x="768" y="46" width="32" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="784" y="55" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">HOOK</text>
+        <text x="832" y="72" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Webhook</text>
+        <text x="832" y="87" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">SafeDNS · max 64</text>
 
         <!-- Legend strip -->
-        <line x1="40" y1="608" x2="920" y2="608" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
-        <text x="40" y="624" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
-        <rect x="40" y="640" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
-        <text x="60" y="648" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Focal L1 + API</text>
-        <rect x="164" y="636" width="28" height="18" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
-        <text x="178" y="648" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ALT</text>
-        <text x="200" y="648" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Miss branch</text>
-        <line x1="308" y1="644" x2="336" y2="644" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-        <text x="344" y="648" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">HTTP request</text>
-        <line x1="448" y1="644" x2="476" y2="644" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
-        <text x="484" y="648" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Return</text>
-        <line x1="560" y1="644" x2="588" y2="644" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/>
-        <text x="596" y="648" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Fire-and-forget</text>
-        <line x1="720" y1="644" x2="748" y2="644" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
-        <text x="756" y="648" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">302 / 200 response</text>
+        <line x1="40" y1="568" x2="920" y2="568" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <text x="40" y="584" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="40" y="600" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+        <text x="60" y="608" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Focal L1 + API</text>
+        <rect x="164" y="596" width="28" height="18" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <text x="178" y="608" fill="#4f5d75" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ALT</text>
+        <text x="200" y="608" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">L1 branch</text>
+        <line x1="292" y1="604" x2="320" y2="604" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <text x="328" y="608" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">HTTP request</text>
+        <line x1="432" y1="604" x2="460" y2="604" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+        <text x="468" y="608" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Return</text>
+        <line x1="544" y1="604" x2="572" y2="604" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/>
+        <text x="580" y="608" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Fire-and-forget</text>
+        <line x1="704" y1="604" x2="732" y2="604" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <text x="740" y="608" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Fast path / response</text>
       </svg>
     </div>
   </div>
