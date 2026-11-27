@@ -1,90 +1,81 @@
-<!DOCTYPE html>
-<html lang="ko">
-
+<!doctype html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>{% if let Some(value) = og_title %}{{ value }}{% endif %}</title>
-    <meta name="description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
-    <meta name="image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
-
-    <!-- Open Graph -->
-    <meta property="og:title" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
-    <meta property="og:description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
-    <meta property="og:image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
-    <meta property="og:type" content="website">
-
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
-    <meta name="twitter:description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
-    <meta name="twitter:image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
-
-    <!-- Schema.org -->
-    <meta itemprop="name" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
-    <meta itemprop="description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
-    <meta itemprop="image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
-
-    <!-- Apple/iOS -->
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
-
-    <!-- Microsoft -->
-    <meta name="msapplication-TileImage" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>{% if let Some(t) = og_title %}{{ t }}{% else %}Redirecting&hellip;{% endif %}</title>
+{% if let Some(t) = og_title %}<meta property="og:title" content="{{ t }}">
+<meta name="twitter:title" content="{{ t }}">
+{% endif %}{% if let Some(d) = og_description %}<meta name="description" content="{{ d }}">
+<meta property="og:description" content="{{ d }}">
+<meta name="twitter:description" content="{{ d }}">
+{% endif %}{% if let Some(i) = og_image_url %}<meta property="og:image" content="{{ i }}">
+<meta name="twitter:image" content="{{ i }}">
+{% endif %}<meta property="og:type" content="website">
+<meta name="twitter:card" content="{% if og_image_url.is_some() %}summary_large_image{% else %}summary{% endif %}">
+<noscript><meta http-equiv="refresh" content="0;url={{ default_url }}"></noscript>
+<style>
+:root{color-scheme:light dark;--bg:#f5f6f8;--fg:#15171c;--mut:#5a606b;--line:#d9dde3;--acc:#4f46e5;--on:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0d0e12;--fg:#eceef2;--mut:#a0a7b3;--line:#2c303b;--acc:#8f91ff;--on:#0d0e12}}
+[hidden]{display:none!important}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR",sans-serif}
+main{padding:24px;text-align:center}
+.spin{width:28px;height:28px;margin:0 auto 16px;border:3px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}
+}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}
+}
+h1{margin:0 0 16px;font-size:1.125rem;font-weight:600;color:var(--mut)}
+.actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+a{padding:10px 20px;font-weight:600;color:var(--fg);text-decoration:none;border:1px solid var(--line);border-radius:10px}
+#go{color:var(--on);background:var(--acc);border-color:var(--acc)}
+a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+</style>
 </head>
+<body>
+<main id="r" data-default="{{ default_url }}"{% if let Some(v) = ios_deep_link %} data-ios-deep-link="{{ v }}"{% endif %}{% if let Some(v) = ios_fallback_url %} data-ios-fallback="{{ v }}"{% endif %}{% if let Some(v) = android_deep_link %} data-android-deep-link="{{ v }}"{% endif %}{% if let Some(v) = android_fallback_url %} data-android-fallback="{{ v }}"{% endif %}>
+  <div class="spin" aria-hidden="true"></div>
+  <h1 id="msg" aria-live="polite">Redirecting&hellip;</h1>
+  <div class="actions"><a id="app" href="#" hidden>Open app</a><a id="go" href="{{ default_url }}">Continue</a></div>
+</main>
+<script>
+(function () {
+  'use strict';
+  var d = document.getElementById('r').dataset;
+  var go = document.getElementById('go'), msg = document.getElementById('msg'), app = document.getElementById('app');
+  var web = function (u) { return /^https?:\/\//i.test(u || ''); };
+  var unsafe = function (u) { return /^(javascript|data|vbscript|file|blob|about):/i.test((u || '').replace(/[\u0000- \u007f]/g, '')); };
+  if (!web(d.default)) { go.removeAttribute('href'); msg.textContent = 'This link cannot be opened.'; return; }
 
-<body id="redirect-data"
-      data-default-fallback="{{ default_url }}"
-      data-ios-deeplink="{% if let Some(value) = ios_deep_link %}{{ value }}{% endif %}"
-      data-ios-fallback="{% if let Some(value) = ios_fallback_url %}{{ value }}{% endif %}"
-      data-android-deeplink="{% if let Some(value) = android_deep_link %}{{ value }}{% endif %}"
-      data-android-fallback="{% if let Some(value) = android_fallback_url %}{{ value }}{% endif %}">
-    <script>
-        window.onload = function () {
-            var body = document.getElementById('redirect-data');
-            var default_fallback_url = body.getAttribute('data-default-fallback') || '';
-            var deeplink_ios = body.getAttribute('data-ios-deeplink') || '';
-            var fallback_url_ios = body.getAttribute('data-ios-fallback') || default_fallback_url;
-            var deeplink_android = body.getAttribute('data-android-deeplink') || '';
-            var fallback_url_android = body.getAttribute('data-android-fallback') || default_fallback_url;
+  var ua = navigator.userAgent;
+  // iPadOS 13+ reports a desktop Safari UA, so it is detected by platform + touch support.
+  var ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var android = /Android/i.test(ua);
+  var deep = ios ? d.iosDeepLink : android ? d.androidDeepLink : '';
+  var fallback = ios ? d.iosFallback : android ? d.androidFallback : '';
+  if (!web(fallback)) fallback = d.default;
+  go.href = fallback;
+  var leave = function () { location.replace(fallback); }; // replace(): Back never returns to this page
+  if (!deep || unsafe(deep)) { leave(); return; }
 
-            function isAndroid() {
-                return /Android/i.test(navigator.userAgent);
-            }
-
-            function isiOS() {
-                return /iPhone|iPad|iPod/i.test(navigator.userAgent);
-            }
-
-            if (isAndroid()) {
-                if (deeplink_android) {
-                    // Attempt Android deeplink
-                    window.location.href = deeplink_android;
-                    setTimeout(function () {
-                        // If the app is not installed, redirect to fallback URL
-                        window.location.href = fallback_url_android;
-                    }, 2000);
-                } else {
-                    // If no Android deeplink, redirect directly to fallback URL
-                    window.location.href = fallback_url_android;
-                }
-            } else if (isiOS()) {
-                if (deeplink_ios) {
-                    // Attempt iOS deeplink
-                    window.location.href = deeplink_ios;
-                    setTimeout(function () {
-                        // If the app is not installed, redirect to fallback URL
-                        window.location.href = fallback_url_ios;
-                    }, 2000);
-                } else {
-                    // If no iOS deeplink, redirect directly to fallback URL
-                    window.location.href = fallback_url_ios;
-                }
-            } else {
-                // If not iOS or Android, redirect to the default fallback URL
-                window.location.href = default_fallback_url;
-            }
-        }
-    </script>
+  app.href = deep; app.hidden = false;
+  msg.textContent = 'Opening the app…';
+  var t0 = Date.now();
+  var timer = setTimeout(function () {
+    // Still visible and not suspended: the app did not take over, so use the web fallback.
+    if (!document.hidden && Date.now() - t0 < 3000) leave();
+  }, 1500);
+  var stop = function () { // the app opened (page hidden/blurred): never yank the user to the store
+    clearTimeout(timer);
+    msg.textContent = 'If the app did not open, use the links below.';
+  };
+  document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); });
+  addEventListener('pagehide', stop);
+  addEventListener('blur', stop);
+  location.href = deep;
+})();
+</script>
 </body>
-
 </html>

@@ -141,8 +141,8 @@ pub(crate) struct PagePolicies {
 impl PagePolicies {
     pub fn new() -> AppResult<Self> {
         Ok(Self {
-            index: page_policy(INDEX_HTML, " img-src https: http: data:; connect-src 'self'; base-uri 'none'; form-action 'self'")?,
-            redirect: page_policy(REDIRECT_HTML, " base-uri 'none'")?,
+            index: page_policy(INDEX_HTML, " img-src https: http: data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")?,
+            redirect: page_policy(REDIRECT_HTML, " base-uri 'none'; frame-ancestors 'none'")?,
         })
     }
 }

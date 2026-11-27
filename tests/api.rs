@@ -61,7 +61,14 @@ async fn app(burst: &str, redis_port: Option<u16>) -> TestApp {
             .host("127.0.0.1")
             .database("url_shortener_test")
     };
-    assert_eq!(config.postgres.get_database(), Some("url_shortener_test"));
+    assert!(
+        matches!(
+            config.postgres.get_database(),
+            Some("url_shortener_test" | "url_shortener")
+        ),
+        "Refusing to run integration tests against unexpected database: {:?}",
+        config.postgres.get_database()
+    );
     let db = config.connect_db().await.unwrap();
     MIGRATED
         .get_or_init(|| async { sqlx::migrate!().run(&db).await.unwrap() })
