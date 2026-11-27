@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex">
 <title>{% if let Some(t) = og_title %}{{ t }}{% else %}Redirecting&hellip;{% endif %}</title>
 {% if let Some(t) = og_title %}<meta property="og:title" content="{{ t }}">
@@ -17,24 +17,38 @@
 <meta name="twitter:card" content="{% if og_image_url.is_some() %}summary_large_image{% else %}summary{% endif %}">
 <noscript><meta http-equiv="refresh" content="0;url={{ default_url }}"></noscript>
 <style>
-:root{color-scheme:light dark;--bg:#f5f6f8;--fg:#15171c;--mut:#5a606b;--line:#d9dde3;--acc:#4f46e5;--on:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#0d0e12;--fg:#eceef2;--mut:#a0a7b3;--line:#2c303b;--acc:#8f91ff;--on:#0d0e12}}
+*,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
-body{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR",sans-serif}
-main{padding:24px;text-align:center}
-.spin{width:28px;height:28px;margin:0 auto 16px;border:3px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}
+body{
+  margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#0c0c0f 0%,#1a1a2e 50%,#16161a 100%);
+  color:#fff;font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,"Noto Sans KR",sans-serif;
 }
-@media (prefers-reduced-motion:reduce){.spin{animation:none}
+.orb{position:fixed;width:460px;height:460px;border-radius:50%;filter:blur(80px);opacity:.26;pointer-events:none;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);top:-160px;right:-140px}
+main{
+  position:relative;z-index:1;width:100%;max-width:360px;padding:32px 24px;text-align:center;
+  background:rgba(255,255,255,.04);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(255,255,255,.1);border-radius:24px;
+  box-shadow:0 20px 50px -12px rgba(0,0,0,.55),0 0 80px -20px rgba(99,102,241,.2);
 }
-h1{margin:0 0 16px;font-size:1.125rem;font-weight:600;color:var(--mut)}
-.actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
-a{padding:10px 20px;font-weight:600;color:var(--fg);text-decoration:none;border:1px solid var(--line);border-radius:10px}
-#go{color:var(--on);background:var(--acc);border-color:var(--acc)}
-a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.spin{width:32px;height:32px;margin:0 auto 18px;border:3px solid rgba(255,255,255,.14);border-top-color:#818cf8;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+h1{margin:0 0 20px;font-size:1.05rem;font-weight:600;color:rgba(255,255,255,.84)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+a{
+  padding:11px 20px;border-radius:12px;font-weight:600;font-size:.875rem;text-decoration:none;
+  color:rgba(255,255,255,.88);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);
+  transition:background-color .15s ease,transform .15s ease;
+}
+a:hover{background:rgba(255,255,255,.14)}
+#go{color:#fff;border-color:transparent;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);box-shadow:0 8px 24px -8px rgba(99,102,241,.6)}
+#go:hover{filter:brightness(1.08)}
+a:focus-visible{outline:2px solid #818cf8;outline-offset:2px}
 </style>
 </head>
 <body>
+<div class="orb" aria-hidden="true"></div>
 <main id="r" data-default="{{ default_url }}"{% if let Some(v) = ios_deep_link %} data-ios-deep-link="{{ v }}"{% endif %}{% if let Some(v) = ios_fallback_url %} data-ios-fallback="{{ v }}"{% endif %}{% if let Some(v) = android_deep_link %} data-android-deep-link="{{ v }}"{% endif %}{% if let Some(v) = android_fallback_url %} data-android-fallback="{{ v }}"{% endif %}>
   <div class="spin" aria-hidden="true"></div>
   <h1 id="msg" aria-live="polite">Redirecting&hellip;</h1>

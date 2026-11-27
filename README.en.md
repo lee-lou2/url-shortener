@@ -4,10 +4,7 @@
 
 🚀 **Demo:** [https://u.lou2.kr](https://u.lou2.kr)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
-  <img alt="URL Shortener demo UI" src="docs/screenshot.png" width="760">
-</picture>
+![URL Shortener demo UI](docs/screenshot.png)
 
 A fast URL shortener written in Rust (Axum + PostgreSQL). It creates short links with app deep links, platform fallbacks,
 Open Graph previews and click webhooks. Plain links are redirected with a single `302`.

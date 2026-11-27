@@ -61,7 +61,7 @@ Other: `views/index.html` (served verbatim), `views/redirect.html` (Askama `Redi
 - The guest JWT is a speed bump, not an identity. Legacy 32-char `xxh3` hashes coexist with new 64-char SHA-256 hashes (no backfill).
 
 ## Frontend (`views/`)
-No build step, no JS toolchain, system fonts, light/dark through `prefers-color-scheme`. Keep both pages accessible (labels, focus rings,
+No build step, no JS toolchain, system fonts, zero external CDN (dark glassmorphism CSS). Keep both pages accessible (labels, focus rings,
 `aria-live`, contrast) and free of `innerHTML`: user text goes through `textContent` only. `redirect.html` must keep `location.replace`,
 iPadOS detection, the cancel-on-`visibilitychange`/`pagehide`/`blur` timer and the visible "Continue" link.
 
