@@ -3,41 +3,41 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>{{ object.og_title }}</title>
-    <meta name="description" content="{{ object.og_description }}">
-    <meta name="image" content="{{ object.og_image_url }}">
+    <title>{% if let Some(value) = og_title %}{{ value }}{% endif %}</title>
+    <meta name="description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
+    <meta name="image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
 
     <!-- Open Graph -->
-    <meta property="og:title" content="{{ object.og_title }}">
-    <meta property="og:description" content="{{ object.og_description }}">
-    <meta property="og:image" content="{{ object.og_image_url }}">
+    <meta property="og:title" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
+    <meta property="og:description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
+    <meta property="og:image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
     <meta property="og:type" content="website">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="{{ object.og_title }}">
-    <meta name="twitter:description" content="{{ object.og_description }}">
-    <meta name="twitter:image" content="{{ object.og_image_url }}">
+    <meta name="twitter:title" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
+    <meta name="twitter:description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
+    <meta name="twitter:image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
 
     <!-- Schema.org -->
-    <meta itemprop="name" content="{{ object.og_title }}">
-    <meta itemprop="description" content="{{ object.og_description }}">
-    <meta itemprop="image" content="{{ object.og_image_url }}">
+    <meta itemprop="name" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
+    <meta itemprop="description" content="{% if let Some(value) = og_description %}{{ value }}{% endif %}">
+    <meta itemprop="image" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
 
     <!-- Apple/iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="{{ object.og_title }}">
+    <meta name="apple-mobile-web-app-title" content="{% if let Some(value) = og_title %}{{ value }}{% endif %}">
 
     <!-- Microsoft -->
-    <meta name="msapplication-TileImage" content="{{ object.og_image_url }}">
+    <meta name="msapplication-TileImage" content="{% if let Some(value) = og_image_url %}{{ value }}{% endif %}">
 </head>
 
 <body id="redirect-data"
-      data-default-fallback="{{ object.default_fallback_url }}"
-      data-ios-deeplink="{{ object.ios_deep_link }}"
-      data-ios-fallback="{{ object.ios_fallback_url }}"
-      data-android-deeplink="{{ object.android_deep_link }}"
-      data-android-fallback="{{ object.android_fallback_url }}">
+      data-default-fallback="{{ default_url }}"
+      data-ios-deeplink="{% if let Some(value) = ios_deep_link %}{{ value }}{% endif %}"
+      data-ios-fallback="{% if let Some(value) = ios_fallback_url %}{{ value }}{% endif %}"
+      data-android-deeplink="{% if let Some(value) = android_deep_link %}{{ value }}{% endif %}"
+      data-android-fallback="{% if let Some(value) = android_fallback_url %}{{ value }}{% endif %}">
     <script>
         window.onload = function () {
             var body = document.getElementById('redirect-data');
