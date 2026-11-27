@@ -117,7 +117,7 @@ Authoritative, commented template: [`.env.example`](.env.example).
 | `CORS_ORIGINS` | — | Comma-separated origins allowed for cross-origin browser `POST`s; empty allows same-origin browsers + direct API clients only (`*` is dev-only) |
 | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE` | — / `0.1` | Optional 5xx error reporting and sample rate (`0.0..=1.0`) |
 
-Removed legacy variables (`REDIS_*`, `JWT_*`, `CACHE_TTL_SECS`, etc.) are safely ignored, and empty values (`KEY=`) fall back to defaults.
+Removed legacy variables (`REDIS_*`, `JWT_*`, `CACHE_TTL_SECS`, etc.) are safely ignored, and empty values (`KEY=`) fall back to defaults (except `DB_PASSWORD=`, which preserves an empty password for passwordless local Postgres; omitting it defaults to `postgres`).
 
 ## API
 

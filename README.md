@@ -117,7 +117,7 @@ cargo run                 # 마이그레이션 자동 적용 후 http://localhos
 | `CORS_ORIGINS` | — | 교차 출처 브라우저 `POST`를 허용할 오리진(쉼표 구분). 비어 있으면 동일 출처 브라우저 + 직접 API 클라이언트만 허용 (`*`는 개발 전용) |
 | `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE` | — / `0.1` | 선택 사항, 5xx 오류 보고 및 샘플링 비율(`0.0..=1.0`) |
 
-이전 버전의 제거된 변수(`REDIS_*`, `JWT_*`, `CACHE_TTL_SECS` 등)는 안전하게 무시되며, 빈 값(`KEY=`)은 기본값으로 처리됩니다.
+이전 버전의 제거된 변수(`REDIS_*`, `JWT_*`, `CACHE_TTL_SECS` 등)는 안전하게 무시되며, 빈 값(`KEY=`)은 기본값으로 처리됩니다(단, `DB_PASSWORD=`는 로컬 무비밀번호 접속을 위해 빈 문자열을 그대로 유지하며 미설정 시에만 `postgres`를 사용합니다).
 
 ## API
 

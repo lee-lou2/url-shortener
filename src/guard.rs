@@ -9,7 +9,7 @@
 //!    returns JSON `429` + `Retry-After`, and prunes idle keys every 60 s.
 
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     time::Duration,
 };
 
@@ -196,6 +196,17 @@ pub(crate) fn limit_writes(
         .route_layer(GovernorLayer::new(limiter).error_handler(|error| rate_limit_error(&error))))
 }
 
+/// Masks IPv6 addresses to `/64` so rotating host bits cannot bypass rate limits.
+fn limit_key(ip: IpAddr) -> IpAddr {
+    match ip.to_canonical() {
+        IpAddr::V6(v6) => {
+            let [a, b, c, d, ..] = v6.segments();
+            Ipv6Addr::new(a, b, c, d, 0, 0, 0, 0).into()
+        }
+        IpAddr::V4(v4) => IpAddr::V4(v4),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ClientIp;
 
@@ -215,11 +226,11 @@ impl KeyExtractor for ClientIp {
                     .ok()
                     .and_then(|value| value.parse::<IpAddr>().ok())
                 {
-                    return Ok(client.to_canonical());
+                    return Ok(limit_key(client));
                 }
             }
         }
-        Ok(peer)
+        Ok(limit_key(peer))
     }
 }
 
@@ -315,5 +326,19 @@ mod tests {
         duplicate.append("sec-fetch-site", HeaderValue::from_static("same-origin"));
         duplicate.append("sec-fetch-site", HeaderValue::from_static("cross-site"));
         assert!(!strict.check(&Method::POST, &duplicate, false));
+    }
+
+    #[test]
+    fn rate_limit_key_buckets_ipv6_by_slash64_and_preserves_ipv4() {
+        let a: IpAddr = "2001:db8:abcd:0012::1".parse().unwrap();
+        let b: IpAddr = "2001:db8:abcd:0012:ffff:ffff:ffff:ffff".parse().unwrap();
+        assert_eq!(limit_key(a), limit_key(b));
+        assert_eq!(
+            limit_key(a),
+            "2001:db8:abcd:0012::".parse::<IpAddr>().unwrap()
+        );
+
+        let mapped: IpAddr = "::ffff:203.0.113.7".parse().unwrap();
+        assert_eq!(limit_key(mapped), "203.0.113.7".parse::<IpAddr>().unwrap());
     }
 }
